@@ -24,7 +24,7 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
       <div class="header-inner">
         <div class="brand">
           <span class="brand-pulse" aria-hidden="true"></span>
-          <span class="brand-name">W00-Board</span>
+          <h1 class="brand-name">W00-Board</h1>
           <span class="brand-badge">Réseau Actif</span>
         </div>
         <div class="board-meta">
@@ -96,9 +96,9 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
         );
       })}
 
-      <!-- Carte d'ajout -->
-      <div class="add-card" role="complementary" aria-label="Ajouter un panneau">
-        <div class="add-icon" aria-hidden="true">+</div>
+      <!-- Carte d'ajout — purement décorative, aria-hidden -->
+      <div class="add-card" aria-hidden="true">
+        <div class="add-icon">+</div>
         <p class="add-text">Nouveau panneau</p>
         <code class="add-hint">config.json → billboards[]</code>
       </div>
@@ -246,6 +246,7 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
     font-weight: 800;
     letter-spacing: -0.02em;
     color: var(--text);
+    margin: 0;
   }
 
   .brand-badge {
@@ -262,7 +263,7 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
 
   .board-count {
     font-size: 0.8rem;
-    color: rgba(255,255,255,0.4);
+    color: rgba(255,255,255,0.6);
     font-weight: 500;
   }
 
@@ -309,12 +310,12 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
 
   .filter-count {
     font-size: 0.7rem;
-    opacity: 0.7;
     font-weight: 700;
+    color: rgba(255,255,255,0.55);
   }
 
   .filter-btn.active .filter-count {
-    opacity: 0.8;
+    color: rgba(15,23,42,0.7);
   }
 
   /* ── Grille ───────────────────────────────────────────────────────────── */
