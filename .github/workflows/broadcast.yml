@@ -35,8 +35,14 @@ jobs:
         run: |
           MESSAGE=$(node -e "process.stdout.write(require('./src/data/config.json').message)")
           AUTHOR=$(node -e "process.stdout.write(require('./src/data/config.json').author)")
+          HASHTAGS=$(node -e "
+            const cfg = require('./src/data/config.json');
+            const tags = cfg.tags && cfg.tags.length ? cfg.tags : ['Billboard', 'Décentralisé', 'IPFS'];
+            process.stdout.write(tags.map(t => '#' + t.replace(/\s+/g, '')).join(' '));
+          ")
           echo "message=$MESSAGE" >> $GITHUB_OUTPUT
           echo "author=$AUTHOR" >> $GITHUB_OUTPUT
+          echo "hashtags=$HASHTAGS" >> $GITHUB_OUTPUT
 
       - name: Afficher le message à diffuser
         run: |
@@ -46,18 +52,16 @@ jobs:
       # ── Mastodon (Fediverse) ────────────────────────────────────────────
       - name: Publier sur Mastodon
         continue-on-error: true
+        env:
+          MSG: ${{ steps.config.outputs.message }}
+          AUTHOR: ${{ steps.config.outputs.author }}
+          HASHTAGS: ${{ steps.config.outputs.hashtags }}
         run: |
           if [ -z "$MASTODON_TOKEN" ] || [ -z "$MASTODON_INSTANCE" ]; then
             echo "⏭ Mastodon non configuré — ajoutez MASTODON_TOKEN et MASTODON_INSTANCE dans les secrets"
             exit 0
           fi
-          STATUS="📋 ${{ steps.config.outputs.message }}
-
-          — ${{ steps.config.outputs.author }}
-          #Billboard #Décentralisé #IPFS
-
-          🔗 $SITE_URL"
-
+          STATUS=$(printf '📋 %s\n\n— %s\n%s\n\n🔗 %s' "$MSG" "$AUTHOR" "$HASHTAGS" "$SITE_URL")
           curl -s -X POST \
             -H "Authorization: Bearer $MASTODON_TOKEN" \
             -F "status=$STATUS" \

@@ -1,6 +1,7 @@
 {
   "message": "JESUS LOVES YOU",
   "author": "W00DDY",
+  "tags": ["Jesus", "Amour", "Foi"],
   "theme": {
     "backgroundColor": "#0f172a",
     "textColor": "#f8fafc",
@@ -9,7 +10,7 @@
     "fontFamily": "Inter"
   },
   "layout": {
-    "horizontalAlignment": "center", 
-    "verticalAlignment": "center"     
+    "horizontalAlignment": "center",
+    "verticalAlignment": "center"
   }
 }

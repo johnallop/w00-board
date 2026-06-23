@@ -14,6 +14,7 @@ export interface LayoutConfig {
 export interface BillboardConfig {
   message: string;
   author: string;
+  tags?: string[];
   theme: ThemeConfig;
   layout: LayoutConfig;
 }
