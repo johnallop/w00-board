@@ -1,0 +1,48 @@
+name: Build, Test & Deploy (Fleek/IPFS)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Tests unitaires
+        run: npm test
+
+      - name: Build statique
+        run: npm run build
+
+      - name: Vérifier les fichiers critiques générés
+        run: |
+          test -f dist/index.html       && echo "✓ index.html"
+          test -f dist/og-image.png     && echo "✓ og-image.png"
+          test -f dist/llms.txt         && echo "✓ llms.txt"
+          test -f dist/llms-full.txt    && echo "✓ llms-full.txt"
+          test -f dist/feed.xml         && echo "✓ feed.xml"
+          test -f dist/feed.json        && echo "✓ feed.json"
+          test -f dist/sitemap-index.xml && echo "✓ sitemap-index.xml"
+          test -f dist/robots.txt       && echo "✓ robots.txt"
+
+      # Fleek se connecte directement à GitHub et déploie automatiquement
+      # sur push vers main. Ce job vérifie que le build est valide avant
+      # que Fleek le récupère.
+      #
+      # Alternative via CLI (si Fleek GitHub integration non configurée) :
+      # - name: Deploy via Fleek CLI
+      #   run: npx @fleek-platform/cli@latest sites deploy
+      #   env:
+      #     FLEEK_TOKEN: ${{ secrets.FLEEK_TOKEN }}

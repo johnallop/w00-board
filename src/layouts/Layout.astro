@@ -1,0 +1,164 @@
+---
+import rawConfig from '../data/config.json';
+import { validateConfig } from '../utils/validateConfig';
+
+validateConfig(rawConfig);
+const config = rawConfig;
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const { title = "Panneau d'Affichage Décentralisé", description = config.message } = Astro.props;
+
+const canonicalURL = new URL(Astro.url.pathname, Astro.site || Astro.url);
+const ogImageUrl = new URL('/og-image.png', Astro.site || Astro.url).toString();
+const rssUrl = new URL('/feed.xml', Astro.site || Astro.url).toString();
+const jsonFeedUrl = new URL('/feed.json', Astro.site || Astro.url).toString();
+
+// Schema.org — tableau de schemas pour une couverture sémantique maximale
+const jsonLdSchemas = [
+  // 1. Œuvre principale
+  {
+    "@context": "https://schema.org",
+    "@type": "CreativeWork",
+    "name": title,
+    "headline": title,
+    "description": description,
+    "text": config.message,
+    "author": {
+      "@type": "Person",
+      "name": config.author
+    },
+    "datePublished": new Date().toISOString(),
+    "image": ogImageUrl,
+    "url": canonicalURL.toString(),
+    "inLanguage": "fr",
+    "isAccessibleForFree": true,
+    "distribution": [
+      { "@type": "DataDownload", "contentUrl": rssUrl, "encodingFormat": "application/rss+xml" },
+      { "@type": "DataDownload", "contentUrl": jsonFeedUrl, "encodingFormat": "application/feed+json" }
+    ]
+  },
+  // 2. Identification du site web
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "Panneau d'Affichage Décentralisé",
+    "url": (Astro.site || Astro.url).toString(),
+    "description": "Panneau d'affichage décentralisé hébergé sur IPFS, diffusé sur Mastodon, Bluesky et Nostr.",
+    "inLanguage": "fr",
+    "author": { "@type": "Person", "name": config.author }
+  },
+  // 3. FAQ pour Featured Snippets et AEO
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Qu'est-ce que ce panneau d'affichage décentralisé ?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": `Ce site est un panneau d'affichage minimaliste dont le contenu est piloté par un fichier JSON hébergé sur Git et déployé sur IPFS. Message actuel : "${config.message}" — signé par ${config.author}.`
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Comment modifier le message du billboard ?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "En modifiant le fichier src/data/config.json dans le dépôt Git source. Un pipeline GitHub Actions reconstruit et redéploie automatiquement le site sur IPFS et diffuse le message sur Mastodon, Bluesky et Nostr."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Le site peut-il être censuré ?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Non. Le contenu est hébergé sur IPFS (InterPlanetary File System), un réseau distribué décentralisé. Le contenu reste accessible via son hash cryptographique unique même si le nom de domaine est retiré."
+        }
+      }
+    ]
+  }
+];
+---
+
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="generator" content={Astro.generator} />
+
+    <!-- SEO -->
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href={canonicalURL} />
+    <meta name="theme-color" content={config.theme.backgroundColor} />
+
+    <!-- OpenGraph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalURL} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImageUrl} />
+    <meta property="og:locale" content="fr_FR" />
+    <meta property="og:site_name" content="Panneau d'Affichage Décentralisé" />
+
+    <!-- Twitter Card -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content={canonicalURL} />
+    <meta property="twitter:title" content={title} />
+    <meta property="twitter:description" content={description} />
+    <meta property="twitter:image" content={ogImageUrl} />
+
+    <!-- Découverte des flux de contenu -->
+    <link rel="alternate" type="application/rss+xml" title="RSS — Panneau d'Affichage" href={rssUrl} />
+    <link rel="alternate" type="application/feed+json" title="JSON Feed — Panneau d'Affichage" href={jsonFeedUrl} />
+    <link rel="alternate" type="text/markdown" href="/llms.txt" title="LLMs summary" />
+    <link rel="alternate" type="text/markdown" href="/llms-full.txt" title="LLMs full context" />
+
+    <!-- JSON-LD — schemas multiples -->
+    {jsonLdSchemas.map((schema) => (
+      <script type="application/ld+json" is:inline set:html={JSON.stringify(schema)} />
+    ))}
+
+    <!-- Police Inter (Google Fonts) -->
+    {config.theme.fontFamily === 'Inter' && (
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet" />
+    )}
+
+    <!-- Cabin Analytics — privacy-first, distingue trafic humain vs bots IA -->
+    <!-- Créer un compte sur withcabin.com pour obtenir votre script personnalisé -->
+    <!-- <script async src="https://scripts.withcabin.com/hello.js"></script> -->
+  </head>
+  <body>
+    <slot />
+
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch((err) => {
+            console.error('ServiceWorker registration failed:', err);
+          });
+        });
+      }
+    </script>
+  </body>
+</html>
+
+<style is:global>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow-x: hidden;
+  }
+</style>

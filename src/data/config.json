@@ -1,0 +1,15 @@
+{
+  "message": "Bienvenue sur le Panneau d'Affichage Décentralisé. Ce message est stocké sur des réseaux ouverts.",
+  "author": "L'Administrateur du Réseau",
+  "theme": {
+    "backgroundColor": "#0f172a",
+    "textColor": "#f8fafc",
+    "accentColor": "#38bdf8",
+    "fontSize": "2.5rem",
+    "fontFamily": "Inter"
+  },
+  "layout": {
+    "horizontalAlignment": "center", 
+    "verticalAlignment": "center"     
+  }
+}

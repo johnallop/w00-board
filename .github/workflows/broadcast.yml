@@ -1,0 +1,79 @@
+name: Broadcast — Diffusion multi-protocoles
+
+# Se déclenche uniquement quand le message change
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/data/config.json'
+
+jobs:
+  broadcast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      # Extraire le message et l'auteur depuis config.json
+      - name: Extraire les données de config
+        id: config
+        run: |
+          MESSAGE=$(node -e "process.stdout.write(require('./src/data/config.json').message)")
+          AUTHOR=$(node -e "process.stdout.write(require('./src/data/config.json').author)")
+          echo "message=$MESSAGE" >> $GITHUB_OUTPUT
+          echo "author=$AUTHOR" >> $GITHUB_OUTPUT
+
+      - name: Afficher le message à diffuser
+        run: |
+          echo "Message : ${{ steps.config.outputs.message }}"
+          echo "Auteur  : ${{ steps.config.outputs.author }}"
+
+      # ── Mastodon (Fediverse) ────────────────────────────────────────────
+      - name: Publier sur Mastodon
+        if: ${{ secrets.MASTODON_TOKEN != '' }}
+        env:
+          MASTODON_INSTANCE: ${{ secrets.MASTODON_INSTANCE }}
+          MASTODON_TOKEN: ${{ secrets.MASTODON_TOKEN }}
+        run: |
+          STATUS="📋 ${{ steps.config.outputs.message }}
+
+          — ${{ steps.config.outputs.author }}
+          #Billboard #Décentralisé #IPFS
+
+          🔗 ${{ secrets.SITE_URL || 'https://your-billboard.on.fleek.co' }}"
+
+          curl -s -X POST \
+            -H "Authorization: Bearer $MASTODON_TOKEN" \
+            -F "status=$STATUS" \
+            -F "visibility=public" \
+            "$MASTODON_INSTANCE/api/v1/statuses"
+          echo "✓ Mastodon"
+
+      # ── Bluesky (AT Protocol) ───────────────────────────────────────────
+      - name: Publier sur Bluesky
+        if: ${{ secrets.BLUESKY_HANDLE != '' }}
+        env:
+          BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+          BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
+          MESSAGE: ${{ steps.config.outputs.message }}
+          SITE_URL: ${{ secrets.SITE_URL || 'https://your-billboard.on.fleek.co' }}
+        run: node scripts/post-bluesky.mjs
+
+      # ── Nostr ───────────────────────────────────────────────────────────
+      - name: Publier sur Nostr
+        if: ${{ secrets.NOSTR_PRIVATE_KEY != '' }}
+        env:
+          NOSTR_PRIVATE_KEY: ${{ secrets.NOSTR_PRIVATE_KEY }}
+          MESSAGE: ${{ steps.config.outputs.message }}
+          SITE_URL: ${{ secrets.SITE_URL || 'https://your-billboard.on.fleek.co' }}
+        run: node scripts/post-nostr.mjs
+
+      - name: Résumé de diffusion
+        run: echo "✓ Broadcasting terminé"
