@@ -4,31 +4,38 @@ import config from '../data/config.json';
 export const prerender = true;
 
 export const GET: APIRoute = async () => {
-  const content = `# Panneau d'Affichage Décentralisé
+  const first = config.billboards[0];
+  const allMessages = config.billboards.map(b => `> ${b.message}\n  — ${b.author}`).join('\n\n');
 
-## Message Actuel
-> ${config.message}
+  const content = `# W00-Board — Panneau d'Affichage Décentralisé
 
-**Auteur :** ${config.author}
+## Panneaux actifs (${config.billboards.length})
+
+${allMessages}
+
 **Généré le :** ${new Date().toISOString()}
 
 ---
 
-## FAQ (Foire Aux Questions)
+## FAQ
 
 ### Qu'est-ce que ce site ?
-Ce site est un panneau d'affichage minimaliste et décentralisé dont la configuration est entièrement pilotée par un unique fichier JSON. Il est optimisé pour être consommé aussi bien par des humains que par des intelligences artificielles (AEO/GEO).
+Un mur d'affichage décentralisé piloté par un fichier JSON versionné sur Git.
+Chaque panneau a son propre message, auteur et tags.
 
-### Où le message est-il stocké ?
-Le message et ses paramètres esthétiques sont stockés dans un dépôt ouvert et distribué (comme GitHub). Le site peut être déployé instantanément sur des plateformes d'hébergement décentralisées ou serverless comme Vercel, Cloudflare Pages ou IPFS.
+### Où les messages sont-ils stockés ?
+Dans \`src/data/config.json\` — tableau \`billboards[]\` dans un dépôt Git public.
 
-### Comment modifier le message ?
-Il suffit de mettre à jour le fichier \`src/data/config.json\` dans le dépôt source. Une reconstruction automatique mettra à jour le site, l'image OpenGraph dynamique et ce fichier sémantique pour les IA.
+### Comment ajouter ou modifier un message ?
+En éditant le fichier \`src/data/config.json\` et en poussant le commit.
+GitHub Actions reconstruit et redéploie automatiquement sur Cloudflare Pages,
+puis diffuse sur Mastodon, Bluesky et Nostr.
 
 ### Quelles technologies sont utilisées ?
-- Astro (Framework web moderne et ultra-léger)
-- Satori (Génération d'images SVG/PNG à la volée)
-- Service Worker (Fonctionnement hors-ligne autonome)
+- Astro (framework web statique)
+- Satori (génération d'image OG)
+- Service Worker (accès hors-ligne)
+- GitHub Actions (CI/CD + broadcasting)
 `;
 
   return new Response(content, {

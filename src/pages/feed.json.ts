@@ -5,26 +5,25 @@ export const prerender = true;
 
 export async function GET({ site }: APIContext) {
   const siteUrl = site?.toString() ?? '';
+  const first = config.billboards[0];
 
   const feed = {
     version: 'https://jsonfeed.org/version/1.1',
-    title: "Panneau d'Affichage Décentralisé",
+    title: "W00-Board — Panneau d'Affichage Décentralisé",
     home_page_url: siteUrl,
     feed_url: `${siteUrl}/feed.json`,
-    description: config.message,
+    description: `${config.billboards.length} panneau${config.billboards.length > 1 ? 'x' : ''} — ${first.message}`,
     language: 'fr',
-    authors: [{ name: config.author }],
-    items: [
-      {
-        id: '1',
-        title: config.message,
-        content_text: `${config.message}\n\nSigné par : ${config.author}`,
-        date_published: new Date().toISOString(),
-        url: siteUrl,
-        authors: [{ name: config.author }],
-        tags: ['décentralisé', 'ipfs', 'billboard', 'message'],
-      },
-    ],
+    authors: [{ name: first.author }],
+    items: config.billboards.map((board) => ({
+      id: `w00-board-${board.id}`,
+      title: board.message,
+      content_text: `${board.message}\n\nSigné par : ${board.author}`,
+      date_published: new Date().toISOString(),
+      url: siteUrl,
+      authors: [{ name: board.author }],
+      tags: board.tags ?? [],
+    })),
   };
 
   return new Response(JSON.stringify(feed, null, 2), {
