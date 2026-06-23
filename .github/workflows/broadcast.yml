@@ -1,6 +1,5 @@
 name: Broadcast — Diffusion multi-protocoles
 
-# Se déclenche uniquement quand le message change
 on:
   push:
     branches: [main]
@@ -10,6 +9,16 @@ on:
 jobs:
   broadcast:
     runs-on: ubuntu-latest
+    # Les secrets sont mappés en variables d'env au niveau du job
+    # (les conditions if ne peuvent pas accéder directement à secrets)
+    env:
+      MASTODON_TOKEN: ${{ secrets.MASTODON_TOKEN }}
+      MASTODON_INSTANCE: ${{ secrets.MASTODON_INSTANCE }}
+      BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+      BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
+      NOSTR_PRIVATE_KEY: ${{ secrets.NOSTR_PRIVATE_KEY }}
+      SITE_URL: ${{ secrets.SITE_URL || 'https://w00-board.pages.dev' }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -21,7 +30,6 @@ jobs:
       - name: Installer les dépendances
         run: npm ci
 
-      # Extraire le message et l'auteur depuis config.json
       - name: Extraire les données de config
         id: config
         run: |
@@ -37,43 +45,49 @@ jobs:
 
       # ── Mastodon (Fediverse) ────────────────────────────────────────────
       - name: Publier sur Mastodon
-        if: ${{ secrets.MASTODON_TOKEN != '' }}
-        env:
-          MASTODON_INSTANCE: ${{ secrets.MASTODON_INSTANCE }}
-          MASTODON_TOKEN: ${{ secrets.MASTODON_TOKEN }}
+        continue-on-error: true
         run: |
+          if [ -z "$MASTODON_TOKEN" ] || [ -z "$MASTODON_INSTANCE" ]; then
+            echo "⏭ Mastodon non configuré — ajoutez MASTODON_TOKEN et MASTODON_INSTANCE dans les secrets"
+            exit 0
+          fi
           STATUS="📋 ${{ steps.config.outputs.message }}
 
           — ${{ steps.config.outputs.author }}
           #Billboard #Décentralisé #IPFS
 
-          🔗 ${{ secrets.SITE_URL || 'https://your-billboard.on.fleek.co' }}"
+          🔗 $SITE_URL"
 
           curl -s -X POST \
             -H "Authorization: Bearer $MASTODON_TOKEN" \
             -F "status=$STATUS" \
             -F "visibility=public" \
             "$MASTODON_INSTANCE/api/v1/statuses"
-          echo "✓ Mastodon"
+          echo "✓ Mastodon publié"
 
       # ── Bluesky (AT Protocol) ───────────────────────────────────────────
       - name: Publier sur Bluesky
-        if: ${{ secrets.BLUESKY_HANDLE != '' }}
+        continue-on-error: true
         env:
-          BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
-          BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
           MESSAGE: ${{ steps.config.outputs.message }}
-          SITE_URL: ${{ secrets.SITE_URL || 'https://your-billboard.on.fleek.co' }}
-        run: node scripts/post-bluesky.mjs
+        run: |
+          if [ -z "$BLUESKY_HANDLE" ] || [ -z "$BLUESKY_PASSWORD" ]; then
+            echo "⏭ Bluesky non configuré — ajoutez BLUESKY_HANDLE et BLUESKY_PASSWORD dans les secrets"
+            exit 0
+          fi
+          node scripts/post-bluesky.mjs
 
       # ── Nostr ───────────────────────────────────────────────────────────
       - name: Publier sur Nostr
-        if: ${{ secrets.NOSTR_PRIVATE_KEY != '' }}
+        continue-on-error: true
         env:
-          NOSTR_PRIVATE_KEY: ${{ secrets.NOSTR_PRIVATE_KEY }}
           MESSAGE: ${{ steps.config.outputs.message }}
-          SITE_URL: ${{ secrets.SITE_URL || 'https://your-billboard.on.fleek.co' }}
-        run: node scripts/post-nostr.mjs
+        run: |
+          if [ -z "$NOSTR_PRIVATE_KEY" ]; then
+            echo "⏭ Nostr non configuré — ajoutez NOSTR_PRIVATE_KEY dans les secrets"
+            exit 0
+          fi
+          node scripts/post-nostr.mjs
 
       - name: Résumé de diffusion
         run: echo "✓ Broadcasting terminé"
