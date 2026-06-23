@@ -1,267 +1,572 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import config from '../data/config.json';
-import { resolveAlignment } from '../utils/alignment';
+import { validateConfig } from '../utils/validateConfig';
 
-const { justifyValue, alignValue, textAlignValue } = resolveAlignment(config.layout);
+validateConfig(config);
 
-const bgColor = config.theme.backgroundColor || '#0f172a';
-const textColor = config.theme.textColor || '#f8fafc';
-const accentColor = config.theme.accentColor || '#38bdf8';
-const fontSize = config.theme.fontSize || '2.5rem';
-const fontFamily = config.theme.fontFamily || 'Inter';
+const { billboards, theme } = config;
+const { backgroundColor: bgColor, textColor, accentColor: globalAccent, fontFamily } = theme;
+
+const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
 ---
 
-<Layout title="Panneau d'Affichage Décentralisé">
-  <main class="billboard-container">
-    <div class="glow-sphere" aria-hidden="true"></div>
-    <div class="grid-overlay" aria-hidden="true"></div>
+<Layout title="W00-Board — Panneau d'Affichage Décentralisé">
+  <div class="page" style={`--bg: ${bgColor}; --text: ${textColor}; --accent: ${globalAccent}; --font: ${fontFamily}`}>
 
-    <article class="billboard-card animate-fade-in">
-      <div class="card-border-glow" aria-hidden="true"></div>
-      <header class="card-header">
-        <div class="status-indicator" role="status" aria-label="Réseau actif">
-          <span class="pulse-dot" aria-hidden="true"></span>
-          <span class="status-text">Réseau Actif / Live</span>
+    <!-- Arrière-plan -->
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="bg-orb bg-orb-1" aria-hidden="true"></div>
+    <div class="bg-orb bg-orb-2" aria-hidden="true"></div>
+
+    <!-- Header -->
+    <header class="site-header">
+      <div class="header-inner">
+        <div class="brand">
+          <span class="brand-pulse" aria-hidden="true"></span>
+          <span class="brand-name">W00-Board</span>
+          <span class="brand-badge">Réseau Actif</span>
         </div>
-      </header>
+        <div class="board-meta">
+          <span class="board-count">{billboards.length} panneau{billboards.length > 1 ? 'x' : ''}</span>
+        </div>
+      </div>
+    </header>
 
-      <h1 class="billboard-message">{config.message}</h1>
+    <!-- Filtres par tag -->
+    {allTags.length > 0 && (
+      <nav class="filter-bar" aria-label="Filtrer par tag">
+        <button class="filter-btn active" data-tag="all" type="button">
+          Tous
+          <span class="filter-count">{billboards.length}</span>
+        </button>
+        {allTags.map(tag => (
+          <button class="filter-btn" data-tag={tag} type="button">
+            #{tag}
+            <span class="filter-count">{billboards.filter(b => b.tags?.includes(tag)).length}</span>
+          </button>
+        ))}
+      </nav>
+    )}
 
-      <footer class="card-footer">
-        <p class="billboard-author">
-          <span class="author-label">Signé par :</span>
-          <strong class="author-name">{config.author}</strong>
-        </p>
-      </footer>
-    </article>
-  </main>
+    <!-- Grille de panneaux -->
+    <main class="board-grid" id="board-grid" role="list">
+      {billboards.map((board, i) => {
+        const accent = board.accentColor || globalAccent;
+        return (
+          <article
+            class="billboard-card"
+            role="listitem"
+            data-tags={JSON.stringify(board.tags ?? [])}
+            style={`--card-accent: ${accent}; --i: ${i}`}
+          >
+            <div class="card-glow" aria-hidden="true"></div>
+            <div class="card-body">
+              <header class="card-top">
+                <div class="live-pill">
+                  <span class="live-dot" aria-hidden="true"></span>
+                  <span>Live</span>
+                </div>
+                {board.accentColor && board.accentColor !== globalAccent && (
+                  <div class="accent-swatch" style={`background: ${board.accentColor}`} aria-hidden="true"></div>
+                )}
+              </header>
+
+              <p class="card-message">{board.message}</p>
+
+              <footer class="card-footer">
+                <span class="card-author">— {board.author}</span>
+                {board.tags && board.tags.length > 0 && (
+                  <div class="card-tags" aria-label="Tags">
+                    {board.tags.map(tag => (
+                      <button
+                        class="tag-chip"
+                        data-filter-tag={tag}
+                        type="button"
+                        aria-label={`Filtrer par ${tag}`}
+                      >
+                        #{tag}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </footer>
+            </div>
+          </article>
+        );
+      })}
+
+      <!-- Carte d'ajout -->
+      <div class="add-card" role="complementary" aria-label="Ajouter un panneau">
+        <div class="add-icon" aria-hidden="true">+</div>
+        <p class="add-text">Nouveau panneau</p>
+        <code class="add-hint">config.json → billboards[]</code>
+      </div>
+    </main>
+
+    <!-- Message vide (aucun résultat pour le filtre) -->
+    <div class="empty-state" id="empty-state" hidden aria-live="polite">
+      <p>Aucun panneau pour ce tag.</p>
+    </div>
+
+  </div>
 </Layout>
 
-<style define:vars={{ bgColor, textColor, accentColor, fontSize, fontFamily, justifyValue, alignValue, textAlignValue }}>
-  .billboard-container {
-    display: flex;
-    flex-direction: column;
-    justify-content: var(--justifyValue);
-    align-items: var(--alignValue);
-    background-color: var(--bgColor);
-    color: var(--textColor);
-    font-family: var(--fontFamily), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+<script>
+  const filterBtns = document.querySelectorAll<HTMLButtonElement>('.filter-btn');
+  const cards = document.querySelectorAll<HTMLElement>('.billboard-card');
+  const emptyState = document.getElementById('empty-state');
+  const tagChips = document.querySelectorAll<HTMLButtonElement>('.tag-chip');
+
+  function applyFilter(tag: string) {
+    filterBtns.forEach(b => b.classList.toggle('active', b.dataset.tag === tag));
+
+    let visible = 0;
+    cards.forEach(card => {
+      const tags: string[] = JSON.parse(card.dataset.tags || '[]');
+      const show = tag === 'all' || tags.includes(tag);
+      card.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+
+    if (emptyState) emptyState.hidden = visible > 0;
+  }
+
+  filterBtns.forEach(btn => {
+    btn.addEventListener('click', () => applyFilter(btn.dataset.tag || 'all'));
+  });
+
+  // Clic sur un tag dans une carte = filtre par ce tag
+  tagChips.forEach(chip => {
+    chip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      applyFilter(chip.dataset.filterTag || 'all');
+    });
+  });
+</script>
+
+<style define:vars={{ bgColor, textColor, globalAccent, fontFamily }}>
+  /* ── Reset & base ─────────────────────────────────────────────────────── */
+  .page {
     min-height: 100vh;
-    width: 100vw;
-    padding: 3rem;
-    box-sizing: border-box;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     position: relative;
-    overflow: hidden;
+    overflow-x: hidden;
   }
 
-  .grid-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+  /* ── Arrière-plan décoratif ───────────────────────────────────────────── */
+  .bg-grid {
+    position: fixed;
+    inset: 0;
     background-image:
-      linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-    background-size: 40px 40px;
-    z-index: 1;
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 48px 48px;
     pointer-events: none;
+    z-index: 0;
   }
 
-  .glow-sphere {
-    position: absolute;
-    width: 600px;
-    height: 600px;
-    background: radial-gradient(circle, var(--accentColor) 0%, transparent 70%);
-    opacity: 0.15;
-    filter: blur(80px);
+  .bg-orb {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(100px);
     pointer-events: none;
-    z-index: 2;
-    animation: floating 10s ease-in-out infinite alternate;
+    z-index: 0;
+    animation: drift 20s ease-in-out infinite alternate;
     will-change: transform;
   }
 
-  .billboard-card {
-    display: flex;
-    flex-direction: column;
-    background: rgba(255, 255, 255, 0.015);
+  .bg-orb-1 {
+    width: 700px;
+    height: 700px;
+    top: -200px;
+    left: -150px;
+    background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
+    opacity: 0.07;
+    animation-duration: 22s;
+  }
+
+  .bg-orb-2 {
+    width: 500px;
+    height: 500px;
+    bottom: -100px;
+    right: -100px;
+    background: radial-gradient(circle, #a78bfa 0%, transparent 70%);
+    opacity: 0.06;
+    animation-duration: 18s;
+    animation-direction: alternate-reverse;
+  }
+
+  @keyframes drift {
+    from { transform: translate(0, 0); }
+    to   { transform: translate(60px, 40px); }
+  }
+
+  /* ── Header ───────────────────────────────────────────────────────────── */
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 24px;
-    padding: 3.5rem;
-    max-width: 800px;
-    width: 100%;
-    box-shadow:
-      0 20px 50px rgba(0, 0, 0, 0.3),
-      inset 0 1px 0 rgba(255, 255, 255, 0.1);
-    z-index: 10;
-    position: relative;
-    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.4s ease;
+    background: rgba(15, 23, 42, 0.75);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
   }
 
-  .billboard-card:hover {
-    transform: translateY(-4px) scale(1.01);
-    border-color: rgba(255, 255, 255, 0.15);
-  }
-
-  .card-border-glow {
-    position: absolute;
-    top: -1px;
-    left: -1px;
-    right: -1px;
-    bottom: -1px;
-    border-radius: 24px;
-    background: linear-gradient(135deg, var(--accentColor), transparent 60%);
-    z-index: -1;
-    opacity: 0.2;
-    pointer-events: none;
-    transition: opacity 0.4s ease;
-  }
-
-  .billboard-card:hover .card-border-glow {
-    opacity: 0.4;
-  }
-
-  .card-header {
-    margin-bottom: 2rem;
-  }
-
-  .status-indicator {
-    display: inline-flex;
+  .header-inner {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 1rem 2rem;
+    display: flex;
     align-items: center;
-    gap: 8px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 100px;
-    padding: 6px 14px;
+    justify-content: space-between;
   }
 
-  .pulse-dot {
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .brand-pulse {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background-color: var(--accentColor);
-    box-shadow: 0 0 10px var(--accentColor);
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: pulse-dot 2s infinite;
+    will-change: transform;
+    flex-shrink: 0;
+  }
+
+  .brand-name {
+    font-size: 1.1rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+
+  .brand-badge {
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.2);
+    padding: 2px 8px;
+    border-radius: 100px;
+  }
+
+  .board-count {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.4);
+    font-weight: 500;
+  }
+
+  /* ── Barre de filtres ─────────────────────────────────────────────────── */
+  .filter-bar {
+    position: sticky;
+    top: 57px;
+    z-index: 90;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    padding: 0.875rem 2rem;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+
+  .filter-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 100px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.04);
+    color: rgba(255,255,255,0.6);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+  }
+
+  .filter-btn:hover {
+    border-color: rgba(255,255,255,0.25);
+    color: rgba(255,255,255,0.9);
+    background: rgba(255,255,255,0.08);
+  }
+
+  .filter-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0f172a;
+  }
+
+  .filter-count {
+    font-size: 0.7rem;
+    opacity: 0.7;
+    font-weight: 700;
+  }
+
+  .filter-btn.active .filter-count {
+    opacity: 0.8;
+  }
+
+  /* ── Grille ───────────────────────────────────────────────────────────── */
+  .board-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.5rem;
+    padding: 1.5rem 2rem 4rem;
+    max-width: 1280px;
+    margin: 0 auto;
+    position: relative;
+    z-index: 10;
+  }
+
+  /* ── Carte billboard ──────────────────────────────────────────────────── */
+  .billboard-card {
+    position: relative;
+    border-radius: 20px;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      var(--card-accent) 0%,
+      rgba(255,255,255,0.08) 40%,
+      rgba(255,255,255,0.02) 100%
+    );
+    animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: calc(var(--i) * 80ms);
+    will-change: transform, opacity;
+    transition: transform 0.3s ease;
+  }
+
+  .billboard-card:hover {
+    transform: translateY(-4px);
+  }
+
+  .card-glow {
+    position: absolute;
+    inset: -30px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--card-accent), transparent 70%);
+    opacity: 0;
+    filter: blur(30px);
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+    z-index: -1;
+    will-change: opacity;
+  }
+
+  .billboard-card:hover .card-glow {
+    opacity: 0.12;
+  }
+
+  .card-body {
+    background: rgba(15, 23, 42, 0.88);
+    border-radius: 19px;
+    padding: 1.75rem;
+    height: 100%;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Contenu carte ────────────────────────────────────────────────────── */
+  .card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+  }
+
+  .live-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 100px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.07);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.6);
+  }
+
+  .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--card-accent);
     animation: pulse-dot 2s infinite;
     will-change: transform;
     position: relative;
   }
 
-  /* Anneau pulsant via pseudo-élément — uniquement transform + opacity (composités GPU) */
-  .pulse-dot::after {
+  .live-dot::after {
     content: '';
     position: absolute;
-    inset: -4px;
+    inset: -3px;
     border-radius: 50%;
-    background: var(--accentColor);
+    background: var(--card-accent);
     opacity: 0;
     animation: pulse-ring 2s infinite;
     will-change: transform, opacity;
   }
 
-  .status-text {
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    opacity: 0.8;
+  .accent-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.15);
   }
 
-  .billboard-message {
-    font-size: var(--fontSize);
-    line-height: 1.3;
+  .card-message {
+    font-size: 1.6rem;
     font-weight: 800;
-    margin: 0 0 2.5rem 0;
-    text-align: var(--textAlignValue);
+    line-height: 1.25;
+    letter-spacing: -0.025em;
+    margin: 0 0 auto 0;
+    padding-bottom: 1.25rem;
+    color: var(--text);
     word-break: break-word;
-    letter-spacing: -0.02em;
-    background: linear-gradient(180deg, var(--textColor) 0%, rgba(255, 255, 255, 0.75) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
   }
 
   .card-footer {
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-    padding-top: 1.5rem;
-    margin-top: auto;
-  }
-
-  .billboard-author {
+    border-top: 1px solid rgba(255,255,255,0.07);
+    padding-top: 1rem;
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    margin: 0;
-    font-size: 1rem;
-    opacity: 0.8;
+    flex-direction: column;
+    gap: 0.6rem;
   }
 
-  .author-label {
-    opacity: 0.6;
-  }
-
-  .author-name {
-    color: var(--accentColor);
+  .card-author {
+    font-size: 0.85rem;
+    color: var(--card-accent);
     font-weight: 600;
   }
 
-  @keyframes floating {
-    0% { transform: translate(0, 0); }
-    100% { transform: translate(50px, 30px); }
+  .card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
   }
 
-  /* Point central — uniquement transform (composité GPU) */
+  .tag-chip {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 100px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.04);
+    color: rgba(255,255,255,0.5);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: inherit;
+  }
+
+  .tag-chip:hover {
+    border-color: var(--card-accent);
+    color: var(--card-accent);
+    background: rgba(255,255,255,0.07);
+  }
+
+  /* ── Carte d'ajout ────────────────────────────────────────────────────── */
+  .add-card {
+    border-radius: 20px;
+    border: 2px dashed rgba(255,255,255,0.1);
+    padding: 1.75rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    text-align: center;
+    min-height: 180px;
+    transition: border-color 0.2s ease;
+    cursor: default;
+  }
+
+  .add-card:hover {
+    border-color: rgba(255,255,255,0.2);
+  }
+
+  .add-icon {
+    font-size: 2rem;
+    font-weight: 300;
+    color: rgba(255,255,255,0.2);
+    line-height: 1;
+  }
+
+  .add-text {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: rgba(255,255,255,0.3);
+    margin: 0;
+  }
+
+  .add-hint {
+    font-size: 0.7rem;
+    color: rgba(255,255,255,0.2);
+    font-family: monospace;
+    background: rgba(255,255,255,0.04);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  /* ── État vide ────────────────────────────────────────────────────────── */
+  .empty-state {
+    text-align: center;
+    padding: 4rem 2rem;
+    color: rgba(255,255,255,0.3);
+    font-size: 0.9rem;
+  }
+
+  /* ── Animations ───────────────────────────────────────────────────────── */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
   @keyframes pulse-dot {
     0%   { transform: scale(0.95); }
-    50%  { transform: scale(1.05); }
+    50%  { transform: scale(1.1); }
     100% { transform: scale(0.95); }
   }
 
-  /* Anneau expansif — transform + opacity uniquement (composité GPU) */
   @keyframes pulse-ring {
     0%   { transform: scale(0.8); opacity: 0.6; }
-    70%  { transform: scale(2.2); opacity: 0; }
+    70%  { transform: scale(2.4); opacity: 0; }
     100% { transform: scale(0.8); opacity: 0; }
   }
 
-  .animate-fade-in {
-    animation: fadeIn 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    will-change: transform, opacity;
+  /* ── Responsive ───────────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    .header-inner { padding: 0.875rem 1rem; }
+    .filter-bar   { padding: 0.75rem 1rem; top: 53px; }
+    .board-grid   { padding: 1rem 1rem 3rem; gap: 1rem; }
+    .card-message { font-size: 1.35rem; }
   }
 
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
+  @media (max-width: 480px) {
+    .board-grid { grid-template-columns: 1fr; }
+    .brand-badge { display: none; }
   }
 
+  /* ── Accessibilité : mouvement réduit ─────────────────────────────────── */
   @media (prefers-reduced-motion: reduce) {
-    .glow-sphere,
-    .pulse-dot,
-    .animate-fade-in {
+    .bg-orb, .brand-pulse, .live-dot, .billboard-card {
       animation: none;
     }
-    .billboard-card {
-      transition: none;
-    }
-    .card-border-glow {
-      transition: none;
-    }
-    .animate-fade-in {
-      opacity: 1;
-    }
-  }
-
-  @media (max-width: 640px) {
-    .billboard-container {
-      padding: 1.5rem;
-    }
-    .billboard-card {
-      padding: 2rem;
-    }
-    .billboard-message {
-      font-size: calc(var(--fontSize) * 0.7);
-    }
+    .billboard-card { opacity: 1; transform: none; }
+    .billboard-card:hover { transform: none; }
   }
 </style>

@@ -1,7 +1,20 @@
 {
-  "message": "JESUS T'AIME",
-  "author": "W00DDY",
-  "tags": ["Jesus", "Amour", "Foi"],
+  "billboards": [
+    {
+      "id": "jesus-aime",
+      "message": "JESUS T'AIME",
+      "author": "W00DDY",
+      "tags": ["Jesus", "Amour", "Foi"],
+      "accentColor": "#38bdf8"
+    },
+    {
+      "id": "paix",
+      "message": "LA PAIX SOIT AVEC VOUS",
+      "author": "W00DDY",
+      "tags": ["Paix", "Foi"],
+      "accentColor": "#a78bfa"
+    }
+  ],
   "theme": {
     "backgroundColor": "#0f172a",
     "textColor": "#f8fafc",

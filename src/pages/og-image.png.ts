@@ -130,7 +130,7 @@ export const GET: APIRoute = async () => {
                         margin: '0 0 30px 0',
                         textAlign: textAlignValue,
                       },
-                      children: config.message,
+                      children: config.billboards[0].message,
                     },
                   },
                   {
@@ -164,7 +164,7 @@ export const GET: APIRoute = async () => {
                               fontWeight: 700,
                               marginLeft: '6px',
                             },
-                            children: config.author,
+                            children: config.billboards[0].author,
                           },
                         },
                       ],

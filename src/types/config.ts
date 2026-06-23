@@ -11,10 +11,16 @@ export interface LayoutConfig {
   verticalAlignment: 'top' | 'center' | 'bottom';
 }
 
-export interface BillboardConfig {
+export interface BillboardItem {
+  id: string;
   message: string;
   author: string;
   tags?: string[];
+  accentColor?: string;
+}
+
+export interface BillboardConfig {
+  billboards: BillboardItem[];
   theme: ThemeConfig;
   layout: LayoutConfig;
 }

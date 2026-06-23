@@ -10,12 +10,31 @@ export function validateConfig(config: unknown): asserts config is BillboardConf
 
   const c = config as Record<string, unknown>;
 
-  if (typeof c.message !== 'string' || c.message.trim() === '') {
-    throw new Error('config.json : "message" doit être une chaîne non vide');
+  if (!Array.isArray(c.billboards) || c.billboards.length === 0) {
+    throw new Error('config.json : "billboards" doit être un tableau non vide');
   }
-  if (typeof c.author !== 'string' || c.author.trim() === '') {
-    throw new Error('config.json : "author" doit être une chaîne non vide');
-  }
+
+  c.billboards.forEach((board: unknown, i: number) => {
+    if (typeof board !== 'object' || board === null) {
+      throw new Error(`config.json : "billboards[${i}]" doit être un objet`);
+    }
+    const b = board as Record<string, unknown>;
+    if (typeof b.id !== 'string' || b.id.trim() === '') {
+      throw new Error(`config.json : "billboards[${i}].id" doit être une chaîne non vide`);
+    }
+    if (typeof b.message !== 'string' || b.message.trim() === '') {
+      throw new Error(`config.json : "billboards[${i}].message" doit être une chaîne non vide`);
+    }
+    if (typeof b.author !== 'string' || b.author.trim() === '') {
+      throw new Error(`config.json : "billboards[${i}].author" doit être une chaîne non vide`);
+    }
+    if (b.tags !== undefined && (!Array.isArray(b.tags) || !b.tags.every((t: unknown) => typeof t === 'string'))) {
+      throw new Error(`config.json : "billboards[${i}].tags" doit être un tableau de chaînes`);
+    }
+    if (b.accentColor !== undefined && typeof b.accentColor !== 'string') {
+      throw new Error(`config.json : "billboards[${i}].accentColor" doit être une chaîne`);
+    }
+  });
 
   if (typeof c.theme !== 'object' || c.theme === null) {
     throw new Error('config.json : "theme" doit être un objet');

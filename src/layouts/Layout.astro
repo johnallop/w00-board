@@ -10,7 +10,7 @@ interface Props {
   description?: string;
 }
 
-const { title = "Panneau d'Affichage Décentralisé", description = config.message } = Astro.props;
+const { title = "W00-Board — Panneau d'Affichage Décentralisé", description = config.billboards[0].message } = Astro.props;
 
 const canonicalURL = new URL(Astro.url.pathname, Astro.site || Astro.url);
 const ogImageUrl = new URL('/og-image.png', Astro.site || Astro.url).toString();
@@ -26,10 +26,10 @@ const jsonLdSchemas = [
     "name": title,
     "headline": title,
     "description": description,
-    "text": config.message,
+    "text": config.billboards[0].message,
     "author": {
       "@type": "Person",
-      "name": config.author
+      "name": config.billboards[0].author
     },
     "datePublished": new Date().toISOString(),
     "image": ogImageUrl,
@@ -49,7 +49,7 @@ const jsonLdSchemas = [
     "url": (Astro.site || Astro.url).toString(),
     "description": "Panneau d'affichage décentralisé hébergé sur IPFS, diffusé sur Mastodon, Bluesky et Nostr.",
     "inLanguage": "fr",
-    "author": { "@type": "Person", "name": config.author }
+    "author": { "@type": "Person", "name": config.billboards[0].author }
   },
   // 3. FAQ pour Featured Snippets et AEO
   {
@@ -61,7 +61,7 @@ const jsonLdSchemas = [
         "name": "Qu'est-ce que ce panneau d'affichage décentralisé ?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": `Ce site est un panneau d'affichage minimaliste dont le contenu est piloté par un fichier JSON hébergé sur Git et déployé sur IPFS. Message actuel : "${config.message}" — signé par ${config.author}.`
+          "text": `Ce site est un mur d'affichage décentralisé piloté par un fichier JSON. Il contient ${config.billboards.length} panneau${config.billboards.length > 1 ? 'x' : ''}. Premier message : "${config.billboards[0].message}" — signé par ${config.billboards[0].author}.`
         }
       },
       {
