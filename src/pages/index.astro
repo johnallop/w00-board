@@ -79,6 +79,7 @@ const fontFamily = config.theme.fontFamily || 'Inter';
     pointer-events: none;
     z-index: 2;
     animation: floating 10s ease-in-out infinite alternate;
+    will-change: transform;
   }
 
   .billboard-card {
@@ -143,7 +144,21 @@ const fontFamily = config.theme.fontFamily || 'Inter';
     border-radius: 50%;
     background-color: var(--accentColor);
     box-shadow: 0 0 10px var(--accentColor);
-    animation: pulse 2s infinite;
+    animation: pulse-dot 2s infinite;
+    will-change: transform;
+    position: relative;
+  }
+
+  /* Anneau pulsant via pseudo-élément — uniquement transform + opacity (composités GPU) */
+  .pulse-dot::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    background: var(--accentColor);
+    opacity: 0;
+    animation: pulse-ring 2s infinite;
+    will-change: transform, opacity;
   }
 
   .status-text {
@@ -197,23 +212,23 @@ const fontFamily = config.theme.fontFamily || 'Inter';
     100% { transform: translate(50px, 30px); }
   }
 
-  @keyframes pulse {
-    0% {
-      transform: scale(0.95);
-      box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.4);
-    }
-    70% {
-      transform: scale(1);
-      box-shadow: 0 0 0 10px rgba(56, 189, 248, 0);
-    }
-    100% {
-      transform: scale(0.95);
-      box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
-    }
+  /* Point central — uniquement transform (composité GPU) */
+  @keyframes pulse-dot {
+    0%   { transform: scale(0.95); }
+    50%  { transform: scale(1.05); }
+    100% { transform: scale(0.95); }
+  }
+
+  /* Anneau expansif — transform + opacity uniquement (composité GPU) */
+  @keyframes pulse-ring {
+    0%   { transform: scale(0.8); opacity: 0.6; }
+    70%  { transform: scale(2.2); opacity: 0; }
+    100% { transform: scale(0.8); opacity: 0; }
   }
 
   .animate-fade-in {
     animation: fadeIn 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    will-change: transform, opacity;
   }
 
   @keyframes fadeIn {
