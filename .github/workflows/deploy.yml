@@ -1,4 +1,4 @@
-name: Build, Test & Deploy (Fleek/IPFS)
+name: Build & Test (Cloudflare Pages déploie automatiquement)
 
 on:
   push:
@@ -34,15 +34,8 @@ jobs:
           test -f dist/llms-full.txt    && echo "✓ llms-full.txt"
           test -f dist/feed.xml         && echo "✓ feed.xml"
           test -f dist/feed.json        && echo "✓ feed.json"
-          test -f dist/sitemap-index.xml && echo "✓ sitemap-index.xml"
+          test -f dist/sitemap.xml       && echo "✓ sitemap.xml"
           test -f dist/robots.txt       && echo "✓ robots.txt"
 
-      # Fleek se connecte directement à GitHub et déploie automatiquement
-      # sur push vers main. Ce job vérifie que le build est valide avant
-      # que Fleek le récupère.
-      #
-      # Alternative via CLI (si Fleek GitHub integration non configurée) :
-      # - name: Deploy via Fleek CLI
-      #   run: npx @fleek-platform/cli@latest sites deploy
-      #   env:
-      #     FLEEK_TOKEN: ${{ secrets.FLEEK_TOKEN }}
+      # Cloudflare Pages surveille la branche main et déploie automatiquement
+      # dès que ce job de build/test passe avec succès.
