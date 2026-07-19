@@ -1,0 +1,158 @@
+name: Heartbeat — Repost hebdomadaire & Rafraîchissement IPNS
+
+on:
+  schedule:
+    - cron: '17 9 * * 1' # Tous les lundis à 09:17 UTC
+  workflow_dispatch:
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    env:
+      MASTODON_TOKEN: ${{ secrets.MASTODON_TOKEN }}
+      MASTODON_INSTANCE: ${{ secrets.MASTODON_INSTANCE }}
+      BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+      BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
+      NOSTR_PRIVATE_KEY: ${{ secrets.NOSTR_PRIVATE_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      W3NAME_KEY: ${{ secrets.W3NAME_KEY }}
+      SITE_URL: ${{ secrets.SITE_URL || 'https://w00-board.pages.dev' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Installer les dépendances
+        id: install
+        run: npm ci
+
+      - name: Lancer le repost hebdomadaire
+        run: node scripts/broadcast.mjs --heartbeat
+
+      # Le heartbeat ne calcule PLUS de CID.
+      #
+      # Il rebuildait le site et le packait lui-même (`npx ipfs-car pack`), puis
+      # republiait ce résultat sans jamais le confronter à quoi que ce soit. Ce
+      # CID coïncidait avec celui de deploy.yml par chance — même lockfile, build
+      # reproductible. Une option d'ipfs-car qui change, une version qui bouge,
+      # un `main` en avance sur le dernier déploiement, et le nom se serait mis à
+      # désigner un CID que personne n'a épinglé : il résoudrait, la relecture de
+      # scripts/lib/ipns-verdict.mjs serait verte — elle vérifie que le nom
+      # désigne ce qu'on a signé, pas que ce contenu existe — et les passerelles
+      # ne trouveraient rien.
+      #
+      # Rafraîchir un nom, c'est le maintenir sur du contenu DÉJÀ épinglé.
+      # CIDS.log, écrit par deploy.yml après un `w3 up` réussi, est la seule
+      # attestation d'épinglage, donc la seule source autorisée ici.
+      #
+      # POURQUOI CETTE ÉTAPE PORTE UN `if:`.
+      #
+      # Une étape sans `if:` porte un `if: success()` implicite — « toutes les
+      # étapes précédentes ont réussi ». L'ordre dans le fichier devient donc une
+      # dépendance, même entre deux tâches qui n'ont rien à voir.
+      #
+      # Tant que broadcast.mjs sortait 0 quoi qu'il arrive, la coïncidence était
+      # sans effet. Depuis qu'il signale ses échecs par son code de retour, une
+      # panne Mastodon — ou un jeton Bluesky expiré, ou Nostr injoignable —
+      # empêche le rafraîchissement du nom IPNS. Or c'est la seule tâche de ce
+      # job à porter une échéance réelle : l'enregistrement w3name expire au bout
+      # d'environ un an, et ce workflow est ce qui le maintient chaud. Faire
+      # dépendre cette échéance de la disponibilité d'un réseau social est un
+      # couplage qu'aucune des deux tâches ne réclame.
+      #
+      # `continue-on-error` sur la diffusion réglerait le symptôme en rendant le
+      # job vert sur une diffusion échouée : exactement le silence que le lot
+      # précédent a supprimé. On énonce plutôt la vraie dépendance de cette
+      # étape-ci — les dépendances npm sont installées — et rien d'autre. Un
+      # `npm ci` cassé la saute (elle ne pourrait de toute façon pas importer
+      # w3name) ; une diffusion cassée ne la concerne pas.
+      - name: Rafraîchir l'IPNS (w3name)
+        id: ipns
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          if [ -z "$W3NAME_KEY" ]; then
+            echo "verified=skipped" >> $GITHUB_OUTPUT
+            echo "resume=secret W3NAME_KEY absent" >> $GITHUB_OUTPUT
+            echo "⏭ IPNS non configuré — ajoutez le secret W3NAME_KEY pour rafraîchir l'enregistrement."
+            exit 0
+          fi
+
+          # « Branche absente » et « je n'ai pas pu demander » ne sont pas la même
+          # chose : les confondre dans un même échec de `git fetch` rejouerait le
+          # travers corrigé dans resoudreOuNull (scripts/update-ipns.mjs), où une
+          # panne réseau se lisait comme « rien n'existe ». `ls-remote
+          # --exit-code` les sépare : 0 = trouvée, 2 = absente, autre = incident.
+          set +e
+          git ls-remote --exit-code --heads origin ipfs-history >/dev/null 2>&1
+          etat=$?
+          set -e
+          case "$etat" in
+            0) ;;
+            2) echo "verified=skipped" >> $GITHUB_OUTPUT
+               echo "resume=branche ipfs-history absente, aucun CID épinglé" >> $GITHUB_OUTPUT
+               echo "⏭ Branche ipfs-history absente — aucun CID n'a encore été épinglé, rien à rafraîchir."
+               exit 0 ;;
+            *) echo "verified=false" >> $GITHUB_OUTPUT
+               echo "resume=git ls-remote a échoué (code $etat), état des épinglages inconnu" >> $GITHUB_OUTPUT
+               echo "❌ Impossible d'interroger origin (git ls-remote → code $etat) — état des épinglages inconnu."
+               exit 1 ;;
+          esac
+
+          # actions/checkout ne rapporte que la branche courante ; la branche
+          # orpheline doit être récupérée explicitement. --depth 1 suffit : seule
+          # la dernière version du journal nous intéresse.
+          git fetch --depth 1 origin ipfs-history
+
+          # Ici la branche EXISTE (le `case` ci-dessus l'a établi), donc CIDS.log
+          # devrait exister aussi : deploy.yml crée la branche et sa première
+          # ligne de journal dans le même push. Un `git show` qui échoue est donc
+          # un incident, pas un cas prévu — mais sous `bash -e` il ferait mourir
+          # l'étape sur un message de git, sans dire ce que ça implique pour le
+          # nom IPNS. On laisse plutôt le script diagnostiquer et rendre son
+          # verdict (scripts/lib/journal-verdict.mjs) : il échouera aussi, en
+          # expliquant quoi réparer.
+          # La redirection crée le fichier AVANT que git n'échoue : sans le rm,
+          # le script lirait un fichier vide au lieu d'un fichier absent — deux
+          # incidents qui ne se réparent pas au même endroit.
+          if ! git show FETCH_HEAD:CIDS.log > "$RUNNER_TEMP/CIDS.log" 2>/dev/null; then
+            rm -f "$RUNNER_TEMP/CIDS.log"
+          fi
+
+          # Le verdict (verified/resume) est écrit dans $GITHUB_OUTPUT par le
+          # script lui-même, sur TOUS ses chemins de sortie — l'étape suivante
+          # le rend visible sans avoir à relire les logs.
+          node scripts/update-ipns.mjs --depuis-log "$RUNNER_TEMP/CIDS.log"
+
+      # Un heartbeat vert doit dire ce qu'il a fait. Sans ce résumé, « publié »,
+      # « rien à publier » et « refus de publier » se ressemblent tous : un job
+      # vert. C'est le silence que ce lot cherche à supprimer, pas seulement le
+      # mauvais CID.
+      - name: Résumé du heartbeat IPNS
+        if: always()
+        env:
+          IPNS_VERIFIED: ${{ steps.ipns.outputs.verified }}
+          IPNS_RESUME: ${{ steps.ipns.outputs.resume }}
+        run: |
+          {
+            echo "### Rafraîchissement IPNS"
+            case "$IPNS_VERIFIED" in
+              true)    echo "✅ Nom republié sur le dernier CID épinglé, et relu après publication." ;;
+              skipped) echo "⏭ Rien à rafraîchir." ;;
+              false)   echo "⚠️ Le nom IPNS n'a **pas** été rafraîchi." ;;
+              *)       echo "⚠️ Verdict IPNS absent — l'étape n'a pas rendu de compte (valeur : \`${IPNS_VERIFIED:-<vide>}\`)." ;;
+            esac
+            # Pas de `[ … ] && echo` ici : sous `bash -e`, un résumé vide ferait
+            # renvoyer 1 à la liste && et sortirait du bloc en plein milieu.
+            if [ -n "$IPNS_RESUME" ]; then
+              echo ""
+              echo "> $IPNS_RESUME"
+            fi
+            echo ""
+            echo "Le contenu reste joignable par son CID direct ; seul le nom stable est en jeu."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>W00-BOARD — Concept 1 : Le mot-pivot</title>
+<!--
+  CONCEPT 1 — LE MOT-PIVOT
+  ========================
+  Hypothèse : à distance, on ne lit pas une phrase, on accroche UN mot.
+  La signalétique routière, l'affiche militante et la une de presse
+  reposent toutes sur le même mécanisme : une ancre lue en < 200 ms,
+  puis le contexte lu ensuite, si l'on s'approche.
+
+  Le panneau actuel traite tous les mots à la même échelle. À 10 m,
+  cela produit un bloc gris indifférencié : rien n'accroche.
+
+  Ce concept casse l'échelle en deux : un mot-pivot à 3–5× la taille du
+  reste. Effet mesurable visé : distance de première compréhension, pas
+  esthétique.
+
+  Coût : zéro image, zéro dépendance, zéro animation obligatoire.
+  Un seul nœud de texte de plus dans le DOM.
+-->
+<style>
+  :root {
+    --bg: #0b0f1a;
+    --ink: #f8fafc;
+    --accent: #38bdf8;
+    /* Police système en attendant l'Inter auto-hébergée du dépôt.
+       font-src 'self' interdit tout CDN : l'intégration réelle
+       réutilise /fonts/inter-800.woff2, déjà préchargée. */
+    --stack: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--stack);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panneau {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    /* padding fluide : à 360 px on ne peut pas se payer 4 rem de marge,
+       à 3840 px on ne veut pas du texte collé au bord. */
+    padding: clamp(1.25rem, 4vw, 5rem);
+    gap: clamp(1rem, 2vh, 2.5rem);
+    overflow: hidden;
+  }
+
+  /* Un seul h1 : le message EST le titre de la page.
+     Le pivot est un <em> à l'intérieur — la lecture d'écran reste
+     linéaire et continue, aucune coupure de phrase. */
+  .message {
+    margin: 0;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 0.95;
+    /* Le reste de la phrase : lisible, mais clairement secondaire. */
+    font-size: clamp(1.5rem, 4.5vw, 4.5rem);
+    /* balance corrige l'orphelin sur un message court et se désactive
+       tout seul au-delà de ~6 lignes : sûr sur du texte variable. */
+    text-wrap: balance;
+    overflow-wrap: break-word;
+  }
+
+  .pivot {
+    display: block;
+    font-style: normal;
+    /* Le rapport d'échelle est le concept. En dessous de 2,5× l'œil ne
+       hiérarchise plus ; au-delà de 6× le reste devient illisible.
+       min(vw, vh) évite qu'un écran large et bas ne coupe le pivot. */
+    font-size: clamp(3.5rem, min(19vw, 30vh), 16rem);
+    line-height: 0.85;
+    letter-spacing: -0.055em;
+    color: var(--accent);
+    /* Sur un mot unique, balance n'a rien à équilibrer : on économise
+       le calcul et on garantit qu'aucune césure n'intervient. */
+    text-wrap: nowrap;
+    /* Un mot plus long que l'écran (allemand, hashtag) doit rétrécir
+       plutôt que déborder : la césure est autorisée en dernier recours. */
+    overflow-wrap: anywhere;
+  }
+
+  .filet {
+    width: clamp(3rem, 12vw, 10rem);
+    height: 4px;
+    background: var(--accent);
+    border: 0;
+    margin: 0;
+    flex: none;
+  }
+
+  .auteur {
+    margin: 0;
+    font-size: clamp(0.875rem, 1.6vw, 1.5rem);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    /* 0,72 d'alpha sur #0b0f1a ≈ 9:1 — largement au-dessus du 4,5:1 AA.
+       Le repère : en dessous de 0,46 on tombe sous le seuil. */
+    color: rgba(248, 250, 252, 0.72);
+  }
+
+  /* ---- Bandeau d'essai — hors concept, sert à la revue ---- */
+  .essai {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.75rem clamp(1.25rem, 4vw, 5rem);
+    border-top: 1px solid rgba(248, 250, 252, 0.12);
+    background: rgba(0, 0, 0, 0.3);
+  }
+
+  .essai button {
+    font: inherit;
+    font-size: 0.8125rem;
+    padding: 0.4rem 0.8rem;
+    border-radius: 999px;
+    border: 1px solid rgba(248, 250, 252, 0.25);
+    background: transparent;
+    color: rgba(248, 250, 252, 0.8);
+    cursor: pointer;
+  }
+
+  .essai button[aria-pressed='true'] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0b0f1a;
+    font-weight: 700;
+  }
+
+  .essai button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+</style>
+</head>
+<body>
+  <div class="panneau">
+    <h1 class="message" id="msg">
+      <em class="pivot">Paix</em>
+      <span id="reste">sur vous et sur ceux qui cherchent</span>
+    </h1>
+    <hr class="filet" />
+    <p class="auteur">Signé — <span id="auteur">W00</span></p>
+  </div>
+
+  <nav class="essai" aria-label="Jeux de test">
+    <button type="button" aria-pressed="true" data-i="0">Court</button>
+    <button type="button" aria-pressed="false" data-i="1">Long (178)</button>
+    <button type="button" aria-pressed="false" data-i="2">Emoji</button>
+    <button type="button" aria-pressed="false" data-i="3">Accents</button>
+    <button type="button" aria-pressed="false" data-i="4">RTL (arabe)</button>
+    <button type="button" aria-pressed="false" data-i="5">Mot très long</button>
+  </nav>
+
+<script>
+  // Chaque cas = {pivot, reste, dir}.
+  //
+  // RÈGLE DE COMPOSITION : le pivot est un mot AJOUTÉ EN TÊTE, jamais un
+  // mot extrait du milieu du message. Extraire laisse un trou — « qui
+  // cherchent la ___ dans la nuit » — et casse à la fois la grammaire et
+  // la lecture d'écran, qui restitue le tout en une seule phrase.
+  // Le pivot est donc soit le premier mot du message (cas court, où il se
+  // retire naturellement du reste), soit un mot-thème tiré des tags.
+  //
+  // CHOIX ARRÊTÉ — le pivot est le PREMIER TAG du panneau, c'est-à-dire
+  // billboards[].tags[0] de config.json. Ce n'est pas une heuristique : le
+  // premier tag est le mot que l'auteur a lui-même mis en tête pour désigner
+  // son panneau. Aucune extraction, aucune liste de mots vides, aucun seuil
+  // à régler — et il est court par nature, ce qui sert directement le clamp
+  // du .pivot. Vérifié sur les deux panneaux réels : « Paix » pour le
+  // panneau paix (c'est exactement CAS[0] ci-dessous), « Jesus » pour
+  // jesus-aime.
+  //
+  // REPLI, tags[] vide — le premier mot du message, retiré du reste pour ne
+  // pas être dit deux fois. Le pivot est structurel, pas optionnel : sans
+  // lui la maquette n'a plus de premier écran. Un repli qui n'affiche rien
+  // laisserait la composition s'effondrer sur un panneau mal renseigné.
+  //
+  // Un tag exceptionnellement long ne casse rien : le cas « Mot très long »
+  // ci-dessous couvre déjà cette borne (overflow-wrap: anywhere sur .pivot).
+  const CAS = [
+    { pivot: 'Paix', reste: 'sur vous et sur ceux qui cherchent', dir: 'ltr' },
+    {
+      // Pivot tiré du tag « lumiere », pas découpé dans la phrase :
+      // le message reste intégralement lisible en dessous.
+      pivot: 'Lumière',
+      reste: 'Que la paix soit sur vous et sur tous ceux qui cherchent la ' +
+             'lumière dans la nuit, car nul ne marche seul quand il porte ' +
+             'en lui la promesse du matin qui vient toujours après tout.',
+      dir: 'ltr',
+    },
+    { pivot: '🕊️', reste: 'La paix 🙏 pour tous 🌍 sans exception ✨', dir: 'ltr' },
+    { pivot: 'Élévation', reste: 'À Éphèse, çà et là, l’âme s’ouvre — Noël, Œuvre, Ïambe', dir: 'ltr' },
+    { pivot: 'سلام', reste: 'السلام عليكم ورحمة الله وبركاته على كل من يبحث عن النور', dir: 'rtl' },
+    { pivot: 'Rindfleischetikettierung', reste: 'un seul mot, plus large que l’écran', dir: 'ltr' },
+  ];
+
+  const elPivot = document.querySelector('.pivot');
+  const elReste = document.getElementById('reste');
+  const elMsg = document.getElementById('msg');
+  const boutons = [...document.querySelectorAll('.essai button')];
+
+  boutons.forEach((b) => b.addEventListener('click', () => {
+    const cas = CAS[Number(b.dataset.i)];
+    elPivot.textContent = cas.pivot;
+    elReste.textContent = cas.reste;
+    // dir sur l'élément de message, pas sur <html> : un panneau arabe
+    // dans une interface française ne doit pas retourner l'interface.
+    // C'est exactement ce qui manque au dépôt aujourd'hui — aucun dir
+    // nulle part dans dist/.
+    elMsg.setAttribute('dir', cas.dir);
+    boutons.forEach((o) => o.setAttribute('aria-pressed', String(o === b)));
+  }));
+</script>
+</body>
+</html>

@@ -1,0 +1,625 @@
+---
+import Layout from '../layouts/Layout.astro';
+import config from '../data/config.json';
+import { validateConfig } from '../utils/validateConfig';
+import { cssFitFactor } from '../utils/fitText';
+
+validateConfig(config);
+
+const { billboards, theme } = config;
+const globalAccent = theme.accentColor;
+
+export const prerender = true;
+---
+
+<Layout title="Mode Ciel — W00-Board" hideFooter={true}>
+  {/*
+    --slide-accent est déclaré ICI, sur le conteneur, en plus de chaque
+    diapositive.
+
+    Il ne l'était que sur `.live-slide`. Or `.live-ui` et `.progress-container`
+    sont des FRÈRES de `.slides-wrapper`, pas des descendants d'une diapositive :
+    la variable n'y était pas héritée, et `var(--slide-accent)` s'y résolvait en
+    « invalide au moment du calcul ». Conséquence, sur la seule page conçue pour
+    tourner en kiosque : `outline: 2px solid var(--slide-accent)` ne produisait
+    AUCUN anneau de focus sur les deux seuls contrôles de la page, et
+    `background: var(--slide-accent)` laissait la barre de progression
+    invisible. Un `var()` qui échoue ne prévient pas — il n'y a ni erreur
+    console, ni style de repli.
+
+    La valeur globale sert de base, les diapositives la redéfinissent pour leur
+    propre sous-arbre (halo, auteur) : le fond continue de changer de couleur au
+    fil des panneaux, mais l'anneau de focus et la barre gardent une teinte
+    stable — ce qui vaut mieux qu'un indicateur qui change de couleur pendant
+    qu'on le regarde.
+
+    Le manifeste PWA ouvre sur /live en `display: fullscreen` : sans chrome de
+    navigateur pour compenser, ces deux défauts n'avaient aucun filet.
+    Contre-exemple interne : verifier.astro déclare --accent sur `main.verify`,
+    ancêtre commun, et ses anneaux de focus fonctionnent.
+  */}
+  <main
+    id="live-container"
+    class="live-container"
+    style={`--bg: ${theme.backgroundColor}; --text: ${theme.textColor}; --font: ${theme.fontFamily}; --slide-accent: ${globalAccent}`}
+    aria-roledescription="diaporama"
+    aria-label="Panneaux d'affichage en plein écran"
+  >
+    <!-- Grille d'arrière-plan commune -->
+    <div class="bg-grid" aria-hidden="true"></div>
+
+    <div class="slides-wrapper">
+      {billboards.map((board, index) => {
+        const accent = board.accentColor || globalAccent;
+        return (
+          <div
+            class={`live-slide ${index === 0 ? 'active' : ''}`}
+            data-id={board.id}
+            data-index={index}
+            style={`--slide-accent: ${accent}; --fit: ${cssFitFactor(board.message)}`}
+            role="group"
+            aria-roledescription="diapositive"
+            aria-label={`${index + 1} sur ${billboards.length}`}
+            aria-hidden={index === 0 ? 'false' : 'true'}
+          >
+            <!-- Halo individuel pour le crossfade de couleur -->
+            <div class="slide-halo" aria-hidden="true"></div>
+
+            <div class="slide-content">
+              <p class="slide-badge">
+                <span class="badge-dot" aria-hidden="true"></span>
+                Réseau Actif / Live
+              </p>
+              
+              <h1 class="slide-message">{board.message}</h1>
+              
+              <p class="slide-author">— {board.author}</p>
+
+              {board.tags && board.tags.length > 0 && (
+                <div class="slide-tags" aria-label="Tags">
+                  {board.tags.map(tag => (
+                    <span class="tag-badge">#{tag}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+
+    <!-- Contrôles et UI de progression -->
+    <div class="live-ui">
+      <!-- Indicateur textuel accessible -->
+      <div class="status-indicator" aria-live="polite">
+        Panneau <span id="current-index-txt">1</span> / {billboards.length}
+        <span id="paused-txt" class="paused-badge" hidden> (En pause)</span>
+      </div>
+
+      <!-- Bouton d'action pour le contrôle au clavier/clic -->
+      <button id="play-pause-btn" class="ui-btn" type="button" aria-label="Mettre en pause le diaporama">
+        <svg id="pause-icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+          <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+        </svg>
+        <svg id="play-icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" {...{ hidden: true }}>
+          <path d="M8 5v14l11-7z"/>
+        </svg>
+      </button>
+
+      <!-- Lien de retour au mur -->
+      <a href="/" class="ui-btn-link" aria-label="Retourner au mur d'affichage">
+        × Quitter
+      </a>
+    </div>
+
+    <!-- Barre de progression de la diapositive active -->
+    <div class="progress-container">
+      <div id="progress-bar" class="progress-bar animating"></div>
+    </div>
+  </main>
+</Layout>
+
+<noscript>
+  <style>
+    /* Progressive Enhancement : sans JS, on n'affiche que le premier panneau de manière statique */
+    .live-slide:not(:first-child) {
+      display: none !important;
+    }
+    .live-ui,
+    .progress-container {
+      display: none !important;
+    }
+  </style>
+</noscript>
+
+<script>
+  // Script compilé et sécurisé par Astro (conforme CSP)
+  const container = document.getElementById('live-container') as HTMLElement | null;
+  const slides = document.querySelectorAll<HTMLElement>('.live-slide');
+  const progressBar = document.getElementById('progress-bar') as HTMLElement | null;
+  const currentIndexTxt = document.getElementById('current-index-txt');
+  const pausedTxt = document.getElementById('paused-txt');
+  const playPauseBtn = document.getElementById('play-pause-btn') as HTMLButtonElement | null;
+  const playIcon = document.getElementById('play-icon');
+  const pauseIcon = document.getElementById('pause-icon');
+
+  if (container && slides.length > 0) {
+    const params = new URLSearchParams(window.location.search);
+    
+    // 1. Paramètres d'URL (dwell et board)
+    const dwellSeconds = parseFloat(params.get('dwell') || '8');
+    const dwellTime = (isNaN(dwellSeconds) ? 8 : dwellSeconds) * 1000;
+    container.style.setProperty('--dwell-time', `${dwellTime}ms`);
+
+    const initialBoardId = params.get('board');
+    let currentIndex = 0;
+    
+    if (initialBoardId) {
+      const foundIndex = Array.from(slides).findIndex(s => s.dataset.id === initialBoardId);
+      if (foundIndex !== -1) {
+        currentIndex = foundIndex;
+      }
+    }
+
+    let isPlaying = true;
+    let timerId: number | null = null;
+    let slideStartTime = Date.now();
+    let remainingTime = dwellTime;
+
+    // Détection reduced-motion
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReducedMotion) {
+      isPlaying = false;
+      if (progressBar) progressBar.style.display = 'none';
+      if (playPauseBtn) playPauseBtn.style.display = 'none';
+    }
+
+    // Initialisation
+    showSlide(currentIndex);
+
+    function showSlide(index: number) {
+      slides.forEach((slide, idx) => {
+        const isActive = idx === index;
+        slide.classList.toggle('active', isActive);
+        slide.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+      });
+
+      currentIndex = index;
+
+      if (currentIndexTxt) {
+        currentIndexTxt.textContent = (currentIndex + 1).toString();
+      }
+
+      // Réinitialiser la barre de progression
+      if (progressBar && isPlaying && !prefersReducedMotion) {
+        progressBar.classList.remove('animating');
+        void progressBar.offsetWidth; // Force reflow
+        progressBar.classList.add('animating');
+        progressBar.style.animationDuration = `${dwellTime}ms`;
+      }
+
+      // Programmer le prochain slide
+      if (isPlaying && !prefersReducedMotion) {
+        slideStartTime = Date.now();
+        remainingTime = dwellTime;
+        startTimer(dwellTime);
+      }
+    }
+
+    function nextSlide() {
+      const nextIdx = (currentIndex + 1) % slides.length;
+      showSlide(nextIdx);
+    }
+
+    function prevSlide() {
+      const prevIdx = (currentIndex - 1 + slides.length) % slides.length;
+      showSlide(prevIdx);
+    }
+
+    function startTimer(time: number) {
+      clearTimer();
+      timerId = window.setTimeout(() => {
+        nextSlide();
+      }, time);
+    }
+
+    function clearTimer() {
+      if (timerId !== null) {
+        clearTimeout(timerId);
+        timerId = null;
+      }
+    }
+
+    function togglePlayPause() {
+      if (prefersReducedMotion) return;
+
+      isPlaying = !isPlaying;
+      container?.classList.toggle('paused', !isPlaying);
+      pausedTxt?.toggleAttribute('hidden', isPlaying);
+
+      if (playIcon) playIcon.toggleAttribute('hidden', isPlaying);
+      if (pauseIcon) pauseIcon.toggleAttribute('hidden', !isPlaying);
+      if (playPauseBtn) {
+        playPauseBtn.setAttribute('aria-label', isPlaying ? 'Mettre en pause le diaporama' : 'Lancer le diaporama');
+      }
+
+      if (isPlaying) {
+        // Reprendre avec le temps restant
+        slideStartTime = Date.now();
+        startTimer(remainingTime);
+        if (progressBar) {
+          progressBar.style.animationPlayState = 'running';
+        }
+      } else {
+        // Mettre en pause et calculer le temps restant
+        clearTimer();
+        const elapsed = Date.now() - slideStartTime;
+        remainingTime = Math.max(0, remainingTime - elapsed);
+        if (progressBar) {
+          progressBar.style.animationPlayState = 'paused';
+        }
+      }
+    }
+
+    // Événements clic
+    container.addEventListener('click', (e) => {
+      // Ignorer les clics sur les boutons et les liens de l'interface
+      if ((e.target as HTMLElement).closest('.live-ui')) return;
+      togglePlayPause();
+    });
+
+    playPauseBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      togglePlayPause();
+    });
+
+    // Contrôles clavier
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePlayPause();
+      } else if (e.code === 'ArrowRight' || e.code === 'ArrowDown') {
+        e.preventDefault();
+        clearTimer();
+        nextSlide();
+      } else if (e.code === 'ArrowLeft' || e.code === 'ArrowUp') {
+        e.preventDefault();
+        clearTimer();
+        prevSlide();
+      }
+    });
+
+    // Pause en arrière-plan (Page Visibility API) pour la sobriété numérique
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        if (isPlaying) {
+          clearTimer();
+          const elapsed = Date.now() - slideStartTime;
+          remainingTime = Math.max(0, remainingTime - elapsed);
+          if (progressBar) {
+            progressBar.style.animationPlayState = 'paused';
+          }
+        }
+      } else {
+        if (isPlaying) {
+          slideStartTime = Date.now();
+          startTimer(remainingTime);
+          if (progressBar) {
+            progressBar.style.animationPlayState = 'running';
+          }
+        }
+      }
+    });
+  }
+</script>
+
+<style>
+  .live-container {
+    min-height: 100vh;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .bg-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+    background-size: 64px 64px;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .slides-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    z-index: 2;
+  }
+
+  .live-slide {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 4rem 2rem;
+    box-sizing: border-box;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.8s ease;
+    text-align: center;
+  }
+
+  .live-slide.active {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  /* Halo coloré dynamique lié à la couleur d'accent du panneau */
+  .slide-halo {
+    position: absolute;
+    width: 130vmin;
+    height: 130vmin;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--slide-accent) 0%, transparent 65%);
+    opacity: 0.14;
+    filter: blur(80px);
+    pointer-events: none;
+    z-index: -1;
+    animation: breathe 16s ease-in-out infinite alternate;
+  }
+
+  @keyframes breathe {
+    from { transform: scale(0.9) rotate(0deg); opacity: 0.11; }
+    to   { transform: scale(1.1) rotate(10deg); opacity: 0.17; }
+  }
+
+  .slide-content {
+    /*
+     * `80rem` était une longueur FIXE (1280 px) pendant que la police croît en
+     * `vw`. À 3840×2160 la police atteint son plafond de 192 px dans une boîte
+     * de 1280 px : 13 caractères par ligne, 14 lignes, texte coupé. Le cap de
+     * mesure — censé protéger la lisibilité — la détruisait sur les écrans
+     * mêmes auxquels ce mode est destiné.
+     *
+     * `90vw` conserve le rôle de garde-fou (une gouttière de 5 % de chaque
+     * côté, jamais de texte collé au bord) mais suit l'échelle du reste. Sur
+     * les formats courants la valeur est équivalente à l'ancienne — 1296 px à
+     * 1440 de large contre 1280 — donc aucune régression visuelle : seul le
+     * très grand écran change, et il change dans le bon sens.
+     */
+    max-width: 90vw;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2rem;
+  }
+
+  .slide-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 6px 16px;
+    border-radius: 100px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.03);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: rgba(248, 250, 252, 0.7);
+  }
+
+  .badge-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--slide-accent);
+    box-shadow: 0 0 12px var(--slide-accent);
+    animation: pulse-dot 2s infinite;
+  }
+
+  @keyframes pulse-dot {
+    0%   { transform: scale(0.9); }
+    50%  { transform: scale(1.2); }
+    100% { transform: scale(0.9); }
+  }
+
+  /* Typographie fluide géante pour mode Ciel */
+  .slide-message {
+    /*
+     * Trois termes, trois rôles distincts :
+     *
+     * - `11vw` : la taille idéale, celle qui fait qu'un panneau se lit de loin.
+     * - `22vh` : garde-fou de HAUTEUR, pour l'écran large et bas (ultrawide,
+     *   vidéoprojecteur en letterbox) qui recevait une police calculée sur une
+     *   largeur qu'il a, dans une hauteur qu'il n'a pas. Sans effet sur les
+     *   formats courants : à 1440×900, 22vh = 198 px > 11vw = 158 px.
+     * - `var(--fit)` : la longueur du message, injectée au build par
+     *   utils/fitText.ts. C'est le terme qui manquait — la taille ne dépendait
+     *   que du viewport, jamais du texte à y faire tenir.
+     *
+     * Le repli `, 1` n'est pas décoratif : `--fit` est déclaré sur
+     * `.live-slide`, et un `var()` non résolu invaliderait TOUTE la déclaration
+     * `font-size` (« invalide au moment du calcul »), sans erreur console ni
+     * style de repli. Le repli garantit qu'au pire on retombe sur l'ancien
+     * comportement au lieu de perdre la taille entière.
+     *
+     * Plancher abaissé de 3rem à 2rem. 48 px sur un mobile 360×640 imposaient
+     * 17 lignes pour 512 px de hauteur disponible : le plancher lui-même
+     * causait la coupe. 32 px se lisent parfaitement à bout de bras, et la
+     * lecture à distance — la raison d'être du plancher — concerne les grands
+     * écrans, où `--fit` laisse de la marge. Un plancher qui rend le texte
+     * invisible protégeait la lisibilité contre elle-même.
+     */
+    font-size: clamp(2rem, calc(min(11vw, 22vh) * var(--fit, 1)), 12rem);
+    font-weight: 900;
+    line-height: 1.05;
+    letter-spacing: -0.04em;
+    margin: 0;
+    text-wrap: balance;
+    overflow-wrap: break-word;
+    color: var(--text);
+  }
+
+  .slide-author {
+    font-size: clamp(1.2rem, 3vw, 2.2rem);
+    font-weight: 600;
+    color: var(--slide-accent);
+    margin: 0;
+  }
+
+  .slide-tags {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.6rem;
+  }
+
+  .tag-badge {
+    font-size: 0.9rem;
+    font-weight: 600;
+    padding: 5px 14px;
+    border-radius: 100px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    color: rgba(248, 250, 252, 0.5);
+  }
+
+  /* Interface utilisateur (Status & Contrôles) */
+  .live-ui {
+    position: absolute;
+    top: 2rem;
+    right: 2rem;
+    left: 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  .status-indicator {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.5);
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: 8px 16px;
+    border-radius: 100px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .paused-badge {
+    color: #f43f5e;
+  }
+
+  .ui-btn,
+  .ui-btn-link {
+    pointer-events: auto;
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.7);
+    padding: 10px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+  }
+
+  .ui-btn-link {
+    border-radius: 100px;
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 700;
+    padding: 8px 18px;
+    margin-left: auto;
+  }
+
+  .ui-btn:hover,
+  .ui-btn-link:hover {
+    color: #fff;
+    background: rgba(15, 23, 42, 0.85);
+    border-color: rgba(255, 255, 255, 0.15);
+    transform: scale(1.05);
+  }
+
+  .ui-btn:focus-visible,
+  .ui-btn-link:focus-visible {
+    outline: 2px solid var(--slide-accent);
+    outline-offset: 3px;
+  }
+
+  /* Barre de progression */
+  .progress-container {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    z-index: 10;
+  }
+
+  .progress-bar {
+    height: 100%;
+    width: 0%;
+    background: var(--slide-accent);
+  }
+
+  .progress-bar.animating {
+    animation: fill-bar var(--dwell-time) linear forwards;
+  }
+
+  @keyframes fill-bar {
+    from { width: 0%; }
+    to { width: 100%; }
+  }
+
+  /* reduced motion query */
+  @media (prefers-reduced-motion: reduce) {
+    .live-slide {
+      transition: none !important;
+    }
+    .slide-halo,
+    .badge-dot,
+    .progress-bar {
+      animation: none !important;
+    }
+    /*
+     * `.ui-btn-link:hover` manquait — le scale est posé sur les DEUX contrôles
+     * (`.ui-btn:hover, .ui-btn-link:hover`), le garde-fou n'en nommait qu'un.
+     * Le lien « × Quitter » continuait donc de sauter au survol. Le reset
+     * global de Layout.astro ramène la transition à 0.01ms, ce qui supprime
+     * l'animation mais pas le déplacement : sans cette ligne, le saut devenait
+     * instantané au lieu de disparaître.
+     */
+    .ui-btn:hover,
+    .ui-btn-link:hover {
+      transform: none !important;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .live-ui { top: 1rem; right: 1rem; left: 1rem; }
+    .live-slide { padding: 2rem 1.5rem; }
+    .slide-content { gap: 1.5rem; }
+    .tag-badge { font-size: 0.8rem; }
+  }
+</style>

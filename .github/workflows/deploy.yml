@@ -9,6 +9,10 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    # Le CID des octets validés ici. Le job ipfs s'en sert comme référence : sans
+    # cette sortie, il épingle un contenu que rien ne rattache à ces tests.
+    outputs:
+      cid: ${{ steps.cid.outputs.cid }}
     steps:
       - uses: actions/checkout@v4
 
@@ -19,6 +23,43 @@ jobs:
 
       - name: Installer les dépendances
         run: npm ci
+
+      # Placé avant les tests, à dessein : c'est le contrôle le moins cher, et
+      # des types incohérents rendent douteux ce que les tests prétendent
+      # prouver. `astro check` plutôt que `tsc --noEmit` parce que tsc ne
+      # connaît pas l'extension .astro — il examinerait 0 des 5 fichiers de la
+      # couche de rendu, déplaçant l'angle mort au lieu de le fermer.
+      #
+      # Le rapport est validé, pas le code de retour. `astro check` sort 0 aussi
+      # bien quand tout est correct que quand il n'a rien regardé : un `exclude`
+      # trop large ou une glob cassée par une montée de version suffirait à
+      # rendre l'étape verte et vide. Le nombre de fichiers examinés est le seul
+      # témoin de ce qu'elle a réellement couvert.
+      #
+      # Limite assumée de ce plancher : il garde du mou (scripts/, configs et
+      # env.d.ts sont comptés en plus des sources de src/). Il attrape un
+      # effondrement de la couverture, pas la perte chirurgicale d'une seule
+      # extension.
+      #
+      # `shell: bash` n'est pas décoratif : le shell par défaut d'Actions est
+      # `bash -e`, SANS pipefail. Le code de retour de `npm run check` serait
+      # avalé par le pipe, et une erreur de types passerait au vert — très
+      # précisément le silence que cette étape existe pour supprimer.
+      - name: Vérification des types
+        shell: bash
+        run: |
+          npm run check 2>&1 | tee "$RUNNER_TEMP/check.log"
+          ATTENDU=$(find src \( -name '*.ts' -o -name '*.astro' \) | wc -l)
+          VU=$(sed -n 's/.*Result (\([0-9]\{1,\}\) files).*/\1/p' "$RUNNER_TEMP/check.log" | tail -1)
+          if [ -z "$VU" ]; then
+            echo "::error::rapport illisible — « Result (N files) » absent de la sortie d'astro check"
+            exit 1
+          fi
+          if [ "$VU" -lt "$ATTENDU" ]; then
+            echo "::error::couverture insuffisante — $VU fichiers examinés pour $ATTENDU sources dans src/"
+            exit 1
+          fi
+          echo "✓ $VU fichiers examinés (≥ $ATTENDU sources dans src/)"
 
       - name: Tests unitaires
         run: npm test
@@ -36,6 +77,276 @@ jobs:
           test -f dist/feed.json        && echo "✓ feed.json"
           test -f dist/sitemap.xml       && echo "✓ sitemap.xml"
           test -f dist/robots.txt       && echo "✓ robots.txt"
+          # Chaque panneau doit avoir sa page et sa carte OG (id lu depuis la
+          # config, jamais codé en dur)
+          FIRST_ID=$(node -p "require('./src/data/config.json').billboards[0].id")
+          test -f "dist/b/$FIRST_ID/index.html" && echo "✓ b/$FIRST_ID/index.html"
+          test -f "dist/og/$FIRST_ID.png"       && echo "✓ og/$FIRST_ID.png"
+
+      # « Tests unitaires » tourne avant le build : dist/ n'existe pas encore et
+      # tout ce qui est gardé par `skipIf(!DIST_PRESENT)` s'y saute. Ces blocs
+      # doivent donc être rejoués ici, sur les octets qui partiront en production
+      # — c'est-à-dire après @playform/compress.
+      # W00_REQUIRE_DIST=1 transforme l'absence de dist/ en erreur dure : sans
+      # cette variable, un jour où le build changerait de répertoire de sortie,
+      # l'étape se sauterait en silence et resterait verte.
+      #
+      # POURQUOI CETTE ÉTAPE REJOUE TOUTE LA SUITE.
+      #
+      # `test:dist` nommait un seul fichier, distArtefacts.test.ts. Le nom
+      # annonçait une intention — « les tests qui regardent dist/ » — mais
+      # l'implémentation était une liste tenue à la main, et elle a menti dès
+      # qu'un deuxième fichier s'est mis à regarder dist/ : serviceWorker.test.ts
+      # confronte PRECACHE_ASSETS aux fichiers réellement servis ET exécute le
+      # dist/sw.js minifié, c'est-à-dire les octets que les navigateurs lancent.
+      # Aucun des deux ne tournait ici, et aucun ne pouvait rougir ailleurs
+      # puisque `npm test` les saute faute de dist/. Un `skipIf` ne laisse pas de
+      # trace rouge : il rend vert.
+      #
+      # Rejouer la suite entière supprime la liste plutôt que de l'allonger. Tout
+      # test qui se garde sur la présence de dist/ est désormais rejoué ici par
+      # construction, sans que personne ait à y penser. Le coût est quelques
+      # secondes de CPU ; le bénéfice est qu'aucun garde-fou ne peut plus être
+      # ajouté hors de portée de l'étape censée l'exécuter.
+      - name: Conformité des artefacts déployés
+        env:
+          W00_REQUIRE_DIST: '1'
+        run: npm run test:dist
+
+      # Le CID IPFS est le hash de dist/. Si deux builds du même arbre de sources
+      # ne donnent pas les mêmes octets, le nom IPNS republie vers un contenu
+      # différent à chaque push sans que rien ne casse visiblement.
+      #
+      # Placé avant l'upload, à dessein : un build non reproductible doit bloquer
+      # l'épinglage plutôt que le laisser passer. Le script rebâtit dans un
+      # répertoire jetable, jamais dans dist/ — les octets validés ci-dessus sont
+      # exactement ceux que le job ipfs recevra.
+      - name: Reproductibilité du build (stabilité du CID)
+        run: npm run check:reproducible
+
+      # Le CID est le nom public du site. Le calculer ICI, sur le dist/ que les
+      # trois étapes précédentes viennent de valider, produit la seule référence
+      # dont le job ipfs puisse se servir pour prouver qu'il épingle ces
+      # octets-là. Le CAR produit est jetable : seul le CID voyage, par
+      # outputs.cid — l'écrire dans dist/ serait circulaire, puisque changer
+      # dist/ change le CID.
+      #
+      # Tourne aussi sur les pull requests, où rien n'est épinglé : le contrôle
+      # de complétude du CAR (voir l'en-tête du script) doit signaler un chemin
+      # commençant par « . » avant la fusion, pas après la publication.
+      - name: Calculer le CID de référence
+        id: cid
+        run: npm run check:cid
+
+      # Le job ipfs épingle exactement les octets testés ici (pas un re-build)
+      - name: Publier dist en artifact (pour le miroir IPFS)
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
 
       # Cloudflare Pages surveille la branche main et déploie automatiquement
       # dès que ce job de build/test passe avec succès.
+
+  # ── Miroir IPFS ───────────────────────────────────────────────────────────
+  # Pin du site sur Storacha + publication IPNS (nom stable k51... codé dans
+  # src/data/ipfs.ts) + trace du CID sur la branche orpheline ipfs-history.
+  # Secrets absents → skip propre avec log, jamais d'échec du déploiement.
+  ipfs:
+    needs: build-and-test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push de CIDS.log sur la branche ipfs-history
+    env:
+      W3_PRINCIPAL: ${{ secrets.W3_PRINCIPAL }}
+      W3_PROOF: ${{ secrets.W3_PROOF }}
+      W3NAME_KEY: ${{ secrets.W3NAME_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Vérifier la configuration du miroir
+        id: guard
+        run: |
+          if [ -z "$W3_PRINCIPAL" ] || [ -z "$W3_PROOF" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "⏭ Miroir IPFS non configuré — ajoutez les secrets W3_PRINCIPAL et W3_PROOF"
+            echo "  (setup une fois : voir README, section « Miroir IPFS »)"
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.configured == 'true'
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Installer les dépendances
+        if: steps.guard.outputs.configured == 'true'
+        run: npm ci
+
+      - name: Récupérer dist (octets identiques au build testé)
+        if: steps.guard.outputs.configured == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      # Le CID est calculé LOCALEMENT avant tout upload : n'importe quel autre
+      # service de pinning (Pinata, Filebase, nœud Kubo) peut resservir le même
+      # CAR à l'identique — zéro verrouillage Storacha.
+      #
+      # --expect ferme la chaîne. Ce CAR doit porter exactement le CID calculé
+      # dans build-and-test sur le dist/ testé ; sinon l'étape échoue AVANT
+      # w3 up, donc avant que le nom IPNS ne désigne un contenu que rien n'a
+      # validé. Ce qui se trouve ainsi couvert : l'aller-retour par l'artifact
+      # GitHub, et une éventuelle divergence de version d'ipfs-car entre les deux
+      # runners (package-lock.json la rend improbable, pas impossible).
+      #
+      # Une sortie de job vide fait échouer le script plutôt que de le rendre
+      # permissif : un contrôle qui se désactive tout seul est pire qu'absent.
+      - name: Packer dist en CAR et vérifier le CID
+        if: steps.guard.outputs.configured == 'true'
+        id: pack
+        env:
+          CID_ATTENDU: ${{ needs.build-and-test.outputs.cid }}
+        run: npm run check:cid -- --output w00.car --expect "$CID_ATTENDU"
+
+      - name: Épingler sur Storacha (w3 up)
+        if: steps.guard.outputs.configured == 'true'
+        env:
+          CID: ${{ steps.pack.outputs.cid }}
+        run: |
+          npm install -g @web3-storage/w3cli
+          w3 space add "$W3_PROOF"
+          w3 up --car w00.car
+          echo "✓ Épinglé : https://${CID}.ipfs.w3s.link/"
+
+      # IPNS peut échouer sans casser le pin : le fallback documenté reste
+      # la branche ipfs-history (dernier CID connu). `continue-on-error` reste
+      # donc justifié — mais il rendait l'échec invisible ailleurs que dans les
+      # logs. Le script relit désormais le nom après publication et exporte son
+      # verdict ; « Résumé du miroir » l'affiche, succès comme échec.
+      - name: Publier IPNS (nom stable)
+        if: steps.guard.outputs.configured == 'true'
+        id: ipns
+        continue-on-error: true
+        env:
+          CID: ${{ steps.pack.outputs.cid }}
+        run: |
+          if [ -z "$W3NAME_KEY" ]; then
+            echo "verified=skipped" >> $GITHUB_OUTPUT
+            echo "resume=secret W3NAME_KEY absent" >> $GITHUB_OUTPUT
+            echo "⏭ IPNS non configuré — ajoutez le secret W3NAME_KEY"
+            echo "  (généré une fois par scripts/generate-w3name-key.mjs)"
+            exit 0
+          fi
+          node scripts/update-ipns.mjs "$CID"
+
+      # Branche orpheline : aucun workflow ne s'y déclenche → zéro boucle CI.
+      # Jamais de commit d'artefact sur main.
+      - name: Tracer le CID sur la branche ipfs-history
+        if: steps.guard.outputs.configured == 'true'
+        env:
+          CID: ${{ steps.pack.outputs.cid }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch origin ipfs-history 2>/dev/null; then
+            git worktree add history FETCH_HEAD
+            cd history
+            git switch -C ipfs-history FETCH_HEAD
+          else
+            git worktree add --detach history
+            cd history
+            git switch --orphan ipfs-history
+          fi
+          echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') ${GITHUB_SHA} ${CID}" >> CIDS.log
+          git add CIDS.log
+          git commit -m "cid: ${CID}"
+          git push origin ipfs-history
+
+      # Toute valeur consommée par un `run:` transite par `env:`. Pas seulement
+      # `resume` — le CID aussi, bien qu'il ne soit qu'un hash calculé
+      # localement par check-cid.mjs. La règle est sans exception à dessein :
+      # « cette valeur-là est sûre » est un raisonnement qu'il faut refaire
+      # entièrement à chaque fois que le script producteur change, et la version
+      # précédente de ce fichier montre comment ça finit — ce commentaire
+      # existait déjà, et le CID était malgré tout interpolé douze lignes plus
+      # bas. src/tests/workflowInjection.test.ts fait désormais échouer la suite
+      # au lieu de compter sur une relecture attentive.
+      #
+      # Le cas `*` porte tout le poids de l'étape. Une sortie absente signifie
+      # que « Publier IPNS » est mort avant d'écrire son verdict — masqué par
+      # `continue-on-error`. Sans cette branche, ce cas-là s'afficherait comme
+      # un résumé normal, ce qui est exactement le silence qu'on supprime ici.
+      - name: Résumé du miroir
+        if: steps.guard.outputs.configured == 'true'
+        env:
+          CID: ${{ steps.pack.outputs.cid }}
+          IPNS_VERIFIED: ${{ steps.ipns.outputs.verified }}
+          IPNS_RESUME: ${{ steps.ipns.outputs.resume }}
+        run: |
+          case "$IPNS_VERIFIED" in
+            true)    IPNS_ETAT="✅ nom relu après publication — $IPNS_RESUME" ;;
+            false)   IPNS_ETAT="❌ **le nom ne désigne pas ce CID** — $IPNS_RESUME" ;;
+            skipped) IPNS_ETAT="⏭ non publié — $IPNS_RESUME" ;;
+            *)       IPNS_ETAT="⚠️ **aucun verdict** — l'étape de publication s'est interrompue avant de le produire (voir ses logs)." ;;
+          esac
+          {
+            echo "### Miroir IPFS"
+            echo "- CID : \`${CID}\`"
+            echo "- Direct : https://${CID}.ipfs.w3s.link/"
+            echo "- IPNS : https://dweb.link/ipns/k51qzi5uqu5djx9q0h131lbqfu69gldfkmq97vpo5g2b0kcmywo7t388uji933"
+            echo "- Vérification IPNS : $IPNS_ETAT"
+            echo "- CID vérifié identique à celui des octets testés dans \`build-and-test\`."
+          } >> $GITHUB_STEP_SUMMARY
+
+  # ── Pings de découverte ───────────────────────────────────────────────────
+  announce:
+    needs: build-and-test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # requis pour git show sur le commit précédent
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Extraire la configuration précédente
+        continue-on-error: true
+        # `PREV_SHA` passe par `env:` et non par `${{ }}` dans le corps du
+        # script : voir la note détaillée en tête de broadcast.yml. GitHub
+        # fabrique ce SHA lui-même, le risque est donc théorique ici — mais la
+        # règle ne vaut que si elle est appliquée partout, sans exception à
+        # évaluer au cas par cas.
+        env:
+          PREV_SHA: ${{ github.event.before }}
+        run: |
+          if [ -n "$PREV_SHA" ] && [ "$PREV_SHA" != "0000000000000000000000000000000000000000" ]; then
+            git show "$PREV_SHA:src/data/config.json" > prev-config.json 2>/dev/null || echo "Impossible de récupérer la config précédente."
+          fi
+
+      - name: Exécuter les pings de découverte (IndexNow, WebSub, Wayback Machine)
+        continue-on-error: true
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          SITE_URL: ${{ secrets.SITE_URL || 'https://w00-board.pages.dev' }}
+        run: |
+          if [ -f prev-config.json ]; then
+            node scripts/announce.mjs --prev prev-config.json
+          else
+            node scripts/announce.mjs
+          fi
+

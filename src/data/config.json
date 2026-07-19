@@ -5,14 +5,16 @@
       "message": "JESUS T'AIME",
       "author": "W00DDY",
       "tags": ["Jesus", "Amour", "Foi"],
-      "accentColor": "#38bdf8"
+      "accentColor": "#38bdf8",
+      "date": "2026-06-23T13:38:09Z"
     },
     {
       "id": "paix",
       "message": "LA PAIX SOIT AVEC VOUS",
       "author": "W00DDY",
       "tags": ["Paix", "Foi"],
-      "accentColor": "#a78bfa"
+      "accentColor": "#a78bfa",
+      "date": "2026-06-23T16:24:58Z"
     }
   ],
   "theme": {

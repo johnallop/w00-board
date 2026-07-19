@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>W00-BOARD — Concept 3 : La sérigraphie</title>
+<!--
+  CONCEPT 3 — LA SÉRIGRAPHIE
+  ==========================
+  Hypothèse contrariante : le fond sombre est un choix par défaut, pas
+  un choix de lisibilité. Sur #0f172a, le meilleur contraste atteignable
+  est 17:1 (#f8fafc) et la moindre transparence le fait chuter — la revue
+  a trouvé 7 textes sous le seuil AA, tous causés par un alpha sur fond
+  sombre. Sur fond clair, le noir plein donne 19:1 et il n'y a rien à
+  surveiller.
+
+  Ce concept inverse : papier, encre noire, une seule couleur d'accent,
+  une trame SVG statique. Le vocabulaire de l'affiche sérigraphiée —
+  Cassandre, l'affiche politique, le tract.
+
+  Trois effets mesurables :
+  1. Lisibilité en plein soleil (kiosque, vitrine) : un écran sombre
+     réfléchit l'environnement, un écran clair le domine.
+  2. Consommation d'encre nulle à l'impression n'est PAS l'argument —
+     l'argument est la capture d'écran et l'aperçu social, qui
+     s'affichent sur des fils majoritairement clairs.
+  3. Coût de composition le plus faible des trois : aucun blur, aucun
+     halo, une seule rastérisation de trame.
+-->
+<style>
+  :root {
+    --papier: #f2ede3;
+    --encre: #12100e;
+    --accent: #d7263d;
+    --stack: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--papier);
+    color: var(--encre);
+    font-family: var(--stack);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panneau {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: clamp(1rem, 3vh, 2rem);
+    padding: clamp(1.5rem, 5vw, 5rem);
+    overflow: hidden;
+  }
+
+  /* Trame : un <svg> inline plutôt qu'une data: URI en background-image.
+     Raison CSP — le dépôt sert une Content-Security-Policy stricte ; un
+     data: URI d'image obligerait à élargir img-src. L'élément inline ne
+     déclenche aucune directive de chargement. */
+  .trame {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    opacity: 0.32;
+    /* Sous le texte : la trame est le grain du papier, pas un filtre
+       posé sur l'encre. */
+    z-index: 0;
+  }
+
+  .contenu {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Bandeau d'accent : l'unique élément coloré. Sur une affiche
+     sérigraphiée, chaque couleur est un passage d'écran supplémentaire —
+     la contrainte produit la sobriété. */
+  .bandeau {
+    display: inline-block;
+    background: var(--accent);
+    color: var(--papier);
+    font-size: clamp(0.75rem, 1.4vw, 1.125rem);
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 0.35em 0.9em;
+    margin-bottom: clamp(0.75rem, 2vh, 1.5rem);
+  }
+
+  .message {
+    margin: 0;
+    font-weight: 800;
+    /* Le corps monte plus haut que sur fond sombre : sans halo ni
+       diffusion, l'encre pleine supporte une taille supérieure sans
+       éblouir. */
+    font-size: clamp(2.25rem, min(12vw, 24vh), 14rem);
+    line-height: 0.94;
+    letter-spacing: -0.04em;
+    text-wrap: balance;
+    overflow-wrap: break-word;
+    /* 19,3:1 — au-delà de tout seuil, y compris AAA (7:1). Aucune
+       transparence nulle part : il n'y a rien à recalculer si la
+       couleur de fond change. */
+    color: var(--encre);
+  }
+
+  .auteur {
+    margin: 0;
+    padding-top: clamp(0.75rem, 2vh, 1.5rem);
+    border-top: 3px solid var(--encre);
+    font-size: clamp(0.875rem, 1.6vw, 1.5rem);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    /* Opaque, pas un alpha : #4a453d sur #f2ede3 = 7,1:1. Le choix de
+       nommer la couleur plutôt que d'appliquer 0,7 d'opacité est
+       délibéré — c'est l'alpha qui a produit les 7 échecs AA du site. */
+    color: #4a453d;
+  }
+
+  /* Respect du thème système : l'utilisateur qui a choisi le mode sombre
+     ne doit pas recevoir un flash blanc. L'inversion conserve les mêmes
+     rapports de contraste. */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --papier: #12100e;
+      --encre: #f2ede3;
+      --accent: #ff5c72;
+    }
+    .auteur { color: #b3aca0; } /* 8,0:1 sur #12100e */
+    .trame { opacity: 0.5; }
+  }
+
+  /* ---- Bandeau d'essai — hors concept, sert à la revue ---- */
+  .essai {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.75rem clamp(1.5rem, 5vw, 5rem);
+    border-top: 3px solid var(--encre);
+  }
+
+  .essai button {
+    font: inherit;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    padding: 0.4rem 0.8rem;
+    border: 2px solid var(--encre);
+    background: transparent;
+    color: var(--encre);
+    cursor: pointer;
+  }
+
+  .essai button[aria-pressed='true'] {
+    background: var(--encre);
+    color: var(--papier);
+  }
+
+  .essai button:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+  }
+</style>
+</head>
+<body>
+  <div class="panneau">
+    <!-- aria-hidden : décorative. Sans cela, certains lecteurs annoncent
+         « image » sur un SVG sans rôle explicite. -->
+    <svg class="trame" aria-hidden="true" focusable="false" preserveAspectRatio="none">
+      <filter id="grain">
+        <!-- Une seule octave, fréquence haute : grain de papier, pas nuage.
+             numOctaves > 1 multiplie le coût de rastérisation sans gain
+             visible à cette opacité. seed fixe = rendu déterministe, donc
+             capture d'écran et CID stables. -->
+        <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="1" seed="7" />
+        <feColorMatrix type="saturate" values="0" />
+      </filter>
+      <rect width="100%" height="100%" filter="url(#grain)" />
+    </svg>
+
+    <div class="contenu">
+      <p class="bandeau">Panneau vivant</p>
+      <h1 class="message" id="msg">Paix sur vous</h1>
+      <p class="auteur">Signé — W00</p>
+    </div>
+  </div>
+
+  <nav class="essai" aria-label="Jeux de test">
+    <button type="button" aria-pressed="true" data-i="0">Court</button>
+    <button type="button" aria-pressed="false" data-i="1">Long (178)</button>
+    <button type="button" aria-pressed="false" data-i="2">Emoji</button>
+    <button type="button" aria-pressed="false" data-i="3">Accents</button>
+    <button type="button" aria-pressed="false" data-i="4">RTL (arabe)</button>
+    <button type="button" aria-pressed="false" data-i="5">CJK</button>
+  </nav>
+
+<script>
+  const CAS = [
+    { t: 'Paix sur vous', dir: 'ltr' },
+    {
+      t: 'Que la paix soit sur vous et sur tous ceux qui cherchent la lumière ' +
+         'dans la nuit, car nul ne marche seul quand il porte en lui la ' +
+         'promesse du matin qui vient toujours après tout.',
+      dir: 'ltr',
+    },
+    { t: 'La paix 🕊️ pour tous 🌍 sans exception ✨🙏', dir: 'ltr' },
+    { t: 'À Éphèse, çà et là, l’âme s’ouvre — Noël, Œuvre, Ïambe', dir: 'ltr' },
+    { t: 'السلام عليكم ورحمة الله وبركاته', dir: 'rtl' },
+    { t: '愿平安与你同在', dir: 'ltr' },
+  ];
+
+  const el = document.getElementById('msg');
+  const boutons = [...document.querySelectorAll('.essai button')];
+
+  boutons.forEach((b) => b.addEventListener('click', () => {
+    const cas = CAS[Number(b.dataset.i)];
+    el.textContent = cas.t;
+    el.setAttribute('dir', cas.dir);
+    boutons.forEach((o) => o.setAttribute('aria-pressed', String(o === b)));
+  }));
+</script>
+</body>
+</html>

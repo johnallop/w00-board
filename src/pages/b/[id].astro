@@ -1,0 +1,723 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import rawConfig from '../../data/config.json';
+
+import { validateConfig } from '../../utils/validateConfig';
+import type { BillboardItem } from '../../types/config';
+import { generateQrCodeSvg } from '../../utils/qrcode';
+import { computeFingerprint, formatFingerprint } from '../../utils/posterHash';
+import { generateSealSvg } from '../../utils/posterSeal';
+
+validateConfig(rawConfig);
+
+export function getStaticPaths() {
+  return rawConfig.billboards.map((board) => ({
+    params: { id: board.id },
+    props: { board },
+  }));
+}
+
+interface Props {
+  board: BillboardItem;
+}
+
+const { board } = Astro.props;
+const { theme } = rawConfig;
+const accent = board.accentColor ?? theme.accentColor;
+
+const description = `« ${board.message} » — signé par ${board.author}. Panneau affiché sur le mur décentralisé W00-Board.`;
+
+// Locale et fuseau explicites : le rendu ne dépend pas de la machine de build
+// (CID IPFS stable), et la date reste celle déclarée dans config.json.
+const displayDate = board.date
+  ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(board.date))
+  : undefined;
+
+const siteUrl = Astro.site?.toString().replace(/\/$/, '') || 'https://w00-board.pages.dev';
+const boardUrl = `${siteUrl}/b/${board.id}/`;
+const qrCodeSvg = generateQrCodeSvg(boardUrl, 140);
+
+// Empreinte calculée au build depuis le contenu canonique du panneau.
+// `await` en frontmatter : Astro exécute ce bloc côté Node, jamais côté client.
+const fingerprint = await computeFingerprint(board);
+const readableFingerprint = formatFingerprint(fingerprint);
+const sealSvg = generateSealSvg(fingerprint, accent, 96);
+---
+
+
+<Layout
+  title={`${board.message} — W00-Board`}
+  description={description}
+  ogImage={`/og/${board.id}.png`}
+  board={board}
+>
+  <main
+    class="poster"
+    style={`--bg: ${theme.backgroundColor}; --text: ${theme.textColor}; --accent: ${accent}; --font: ${theme.fontFamily}`}
+  >
+    <div class="halo" aria-hidden="true"></div>
+
+    <div class="poster-inner">
+      <p class="poster-badge">
+        <span class="badge-dot" aria-hidden="true"></span>
+        Réseau Actif / Live
+      </p>
+
+      <h1 class="poster-message">{board.message}</h1>
+
+      <p class="poster-author">— {board.author}</p>
+
+      {board.tags && board.tags.length > 0 && (
+        <ul class="poster-tags" aria-label="Tags">
+          {board.tags.map((tag) => (
+            <li class="poster-tag">#{tag}</li>
+          ))}
+        </ul>
+      )}
+
+      {displayDate && <p class="poster-date">Publié le {displayDate}</p>}
+
+      {/*
+        Sceau d'authenticité. Le SVG vient de generateSealSvg() : il est
+        entièrement synthétisé au build, sans donnée utilisateur hormis la
+        couleur d'accent, filtrée par sanitizeSvgColor() — c'est la sanitisation
+        qui autorise ce set:html (cf. src/utils/posterSeal.ts).
+        Le glyphe est aria-hidden : l'information vérifiable est le texte.
+      */}
+      <figure class="poster-seal" data-fingerprint={fingerprint}>
+        <div class="seal-glyph" set:html={sealSvg} />
+        <figcaption class="seal-caption">
+          <span class="seal-label">Sceau d’authenticité</span>
+          <code class="seal-hash">{readableFingerprint}</code>
+          <a class="seal-verify" href={`/verifier/#${board.id}`}>Vérifier cette empreinte</a>
+        </figcaption>
+      </figure>
+
+      <div class="poster-qrcode-container" aria-label="QR Code de ce panneau">
+        <div class="qrcode-wrapper" id="qrcode-wrapper" set:html={qrCodeSvg} />
+        <p class="qrcode-legend">Scannez pour partager ou afficher ce panneau</p>
+        <div class="qrcode-downloads">
+          <button
+            id="download-qr-btn"
+            class="download-btn"
+            type="button"
+            data-filename={`qrcode-${board.id}.png`}
+          >
+            QR Code PNG
+          </button>
+          <span class="download-sep" aria-hidden="true">·</span>
+          <a
+            href={`/og/${board.id}.png`}
+            download={`w00-board-${board.id}.png`}
+            class="download-btn"
+          >
+            Affiche PNG
+          </a>
+          <span class="download-sep" aria-hidden="true">·</span>
+          <button
+            id="print-btn"
+            class="download-btn"
+            type="button"
+          >
+            Imprimer / PDF
+          </button>
+        </div>
+      </div>
+
+
+
+      <nav class="poster-actions" aria-label="Actions">
+        <a class="action-link" href="/">← Voir le mur</a>
+        <button
+          class="action-share"
+          id="share-btn"
+          type="button"
+          data-message={board.message}
+          data-author={board.author}
+        >
+          Partager
+        </button>
+      </nav>
+
+      <p class="share-feedback" id="share-feedback" role="status" aria-live="polite"></p>
+    </div>
+  </main>
+</Layout>
+
+<script>
+  const btn = document.getElementById('share-btn') as HTMLButtonElement | null;
+  const feedback = document.getElementById('share-feedback');
+
+  btn?.addEventListener('click', async () => {
+    const url = window.location.href;
+    const text = `${btn.dataset.message} — ${btn.dataset.author}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: document.title, text, url });
+      } else {
+        await navigator.clipboard.writeText(url);
+        if (feedback) feedback.textContent = 'Lien copié dans le presse-papier ✓';
+      }
+    } catch (err) {
+      // Partage annulé par l'utilisateur : rien à signaler.
+      if ((err as Error).name !== 'AbortError' && feedback) {
+        feedback.textContent = "Impossible de partager — copiez l'URL de la page.";
+      }
+    }
+  });
+
+  // Téléchargement du QR Code en PNG HD
+  const downloadQrBtn = document.getElementById('download-qr-btn') as HTMLButtonElement | null;
+  const qrWrapper = document.getElementById('qrcode-wrapper');
+
+  /*
+   * Un téléchargement qui échoue doit se voir à l'écran, pas dans la console.
+   *
+   * Les trois chemins d'échec (canvas indisponible, rasterisation refusée,
+   * exception) n'écrivaient qu'un `console.error`. Pour la personne qui clique,
+   * les trois se ressemblent : le bouton s'enfonce et rien ne descend. Elle
+   * reclique, puis conclut que le site est cassé — alors que « Affiche PNG »,
+   * juste à côté, est un lien direct qui fonctionne toujours.
+   *
+   * Le message part dans #share-feedback, déjà `role="status"` et déjà réservé
+   * en hauteur (min-height: 1.2em), donc annoncé aux lecteurs d'écran sans
+   * provoquer de décalage de mise en page.
+   */
+  function echecQr(cause: unknown) {
+    console.error('Téléchargement du QR code impossible :', cause);
+    if (feedback) {
+      feedback.textContent = 'Téléchargement du QR impossible — utilisez « Imprimer / PDF ».';
+    }
+  }
+
+  downloadQrBtn?.addEventListener('click', () => {
+    const svgElement = qrWrapper?.querySelector('svg');
+    if (!svgElement) {
+      echecQr('aucun <svg> dans #qrcode-wrapper');
+      return;
+    }
+
+    try {
+      const serializer = new XMLSerializer();
+      const svgString = serializer.serializeToString(svgElement);
+
+      /*
+       * Aucune retouche de couleur : le SVG est exporté tel qu'il est affiché.
+       *
+       * Il y avait ici deux `replace` visant `fill="#000000"` et
+       * `fill="#ffffff"`, censés teinter les modules à la couleur d'accent et
+       * rendre le fond transparent. Ils ne se sont jamais appliqués :
+       * qrcode-generator émet un unique `<rect fill="white">` de fond et un
+       * unique `<path fill="black">` pour les modules — ni hexadécimal, ni
+       * `rect` pour les modules. Les deux `replace` ne trouvaient rien, et
+       * l'export sortait déjà en noir sur blanc.
+       *
+       * Ce code mort en cachait un autre : `--accent` était lu sur
+       * `document.documentElement` alors qu'il est déclaré sur `main.poster`
+       * (voir l'attribut `style` du <main>). `getPropertyValue` renvoyait ''
+       * et le `|| '#38bdf8'` l'emportait toujours — un panneau violet aurait
+       * exporté du bleu. Le défaut était réel mais inerte, faute de cible.
+       *
+       * On ne répare donc pas la teinture : on la supprime. Un QR se lit en
+       * sombre sur clair, c'est la seule combinaison qu'acceptent tous les
+       * lecteurs (l'appareil photo d'iOS refuse les codes inversés). Le
+       * `<rect>` blanc couvre 100% du viewBox, donc le PNG hérite d'un fond
+       * opaque et reste lisible même collé sur une surface sombre. Écran,
+       * export et feuille d'impression montrent enfin le même code.
+       */
+
+      const img = new Image();
+      const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      const blobUrl = URL.createObjectURL(svgBlob);
+
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1000; // Haute Définition
+        canvas.height = 1000;
+        const ctx = canvas.getContext('2d');
+
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, 1000, 1000);
+
+          const pngUrl = canvas.toDataURL('image/png');
+          const downloadLink = document.createElement('a');
+          downloadLink.href = pngUrl;
+          downloadLink.download = downloadQrBtn.dataset.filename || 'qrcode.png';
+          document.body.appendChild(downloadLink);
+          downloadLink.click();
+          document.body.removeChild(downloadLink);
+        } else {
+          echecQr('canvas 2d indisponible');
+        }
+
+        URL.revokeObjectURL(blobUrl);
+      };
+
+      img.onerror = () => {
+        echecQr('le SVG n’a pas pu être rasterisé');
+        URL.revokeObjectURL(blobUrl);
+      };
+
+      img.src = blobUrl;
+    } catch (err) {
+      echecQr(err);
+    }
+  });
+
+  // Impression / PDF
+  const printBtn = document.getElementById('print-btn');
+  printBtn?.addEventListener('click', () => {
+    window.print();
+  });
+</script>
+
+
+<style>
+  .poster {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    position: relative;
+    overflow: hidden;
+    padding: 3rem 1.5rem;
+    box-sizing: border-box;
+  }
+
+  /* Halo à la couleur d'accent du panneau — dégradé CSS, aucune image */
+  .halo {
+    position: absolute;
+    width: 120vmin;
+    height: 120vmin;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--accent) 0%, transparent 65%);
+    opacity: 0.12;
+    filter: blur(60px);
+    pointer-events: none;
+    animation: breathe 12s ease-in-out infinite alternate;
+    will-change: transform, opacity;
+  }
+
+  @keyframes breathe {
+    from { transform: scale(0.9); opacity: 0.09; }
+    to   { transform: scale(1.05); opacity: 0.15; }
+  }
+
+  .poster-inner {
+    position: relative;
+    z-index: 1;
+    max-width: 68rem;
+    width: 100%;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.25rem;
+  }
+
+  .poster-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 6px 14px;
+    border-radius: 100px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(248, 250, 252, 0.75);
+  }
+
+  .badge-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    animation: pulse-dot 2s infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes pulse-dot {
+    0%   { transform: scale(0.95); }
+    50%  { transform: scale(1.15); }
+    100% { transform: scale(0.95); }
+  }
+
+  /* L'affiche : typographie géante fluide, lisible du fond de la pièce */
+  .poster-message {
+    font-size: clamp(2.5rem, 9vw, 8rem);
+    font-weight: 900;
+    line-height: 1.08;
+    letter-spacing: -0.03em;
+    margin: 0;
+    text-wrap: balance;
+    overflow-wrap: break-word;
+    max-width: 100%;
+  }
+
+  .poster-author {
+    font-size: clamp(1rem, 2.5vw, 1.5rem);
+    font-weight: 600;
+    color: var(--accent);
+    margin: 0;
+  }
+
+  .poster-tags {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .poster-tag {
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 100px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(248, 250, 252, 0.6);
+  }
+
+  .poster-date {
+    font-size: 0.8rem;
+    /* α 0.45 → 0.46 : 4.46:1 sous le seuil AA, 4.63:1 au-dessus (fond #0f172a). */
+    color: rgba(248, 250, 252, 0.46);
+    margin: 0;
+  }
+
+  /* Sceau : glyphe déterministe + empreinte lisible côte à côte */
+  .poster-seal {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    margin: 0.5rem 0 0;
+    padding: 0.6rem 1rem 0.6rem 0.6rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.02);
+    transition: border-color 0.2s ease;
+  }
+
+  .poster-seal:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  .seal-glyph {
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+
+  .seal-glyph :global(svg) {
+    display: block;
+    width: 44px;
+    height: 44px;
+  }
+
+  .seal-caption {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    text-align: left;
+  }
+
+  .seal-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(248, 250, 252, 0.5);
+  }
+
+  .seal-hash {
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    letter-spacing: 0.06em;
+    color: rgba(248, 250, 252, 0.82);
+  }
+
+  .seal-verify {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .seal-verify:hover {
+    text-decoration: underline;
+  }
+
+  .seal-verify:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  .poster-qrcode-container {
+    margin-top: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .qrcode-wrapper {
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    transition: transform 0.2s ease, border-color 0.2s ease;
+  }
+
+  .qrcode-wrapper:hover {
+    transform: scale(1.03);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  .qrcode-wrapper :global(svg) {
+    display: block;
+    width: 130px;
+    height: 130px;
+    background: transparent;
+  }
+
+  /*
+   * Il y avait ici deux règles teintant les modules du QR à la couleur d'accent
+   * et rendant son fond transparent, ciblées sur `rect[fill="#000000"]` et
+   * `rect[fill="#ffffff"]`. Elles n'ont jamais rien sélectionné :
+   * qrcode-generator émet un seul `<rect fill="white">` de fond et un seul
+   * `<path fill="black">` pour les modules — pas d'hexadécimal, pas de `rect`
+   * par module. @playform/compress déquote en plus les attributs (`fill=white`
+   * dans dist/), ce qui rendait la correspondance doublement impossible.
+   *
+   * Supprimées plutôt que réparées : un QR se lit en sombre sur clair, seule
+   * combinaison acceptée par tous les lecteurs. Voir le commentaire du script
+   * d'export plus bas — écran, PNG et impression montrent le même code.
+   */
+
+  .qrcode-legend {
+    font-size: 0.7rem;
+    /* α 0.4 → 0.46 : 3.81:1 sous le seuil AA, 4.63:1 au-dessus (fond #0f172a). */
+    color: rgba(248, 250, 252, 0.46);
+    margin: 0;
+  }
+
+  .qrcode-downloads {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+  }
+
+  .download-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 0.15s ease;
+    font-family: inherit;
+  }
+
+  .download-btn:hover {
+    color: #fff;
+    text-decoration: underline;
+  }
+
+  .download-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  .download-sep {
+    font-size: 0.75rem;
+    color: rgba(248, 250, 252, 0.25);
+  }
+
+  .poster-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+  }
+
+  .action-link,
+  .action-share {
+    display: inline-flex;
+    align-items: center;
+    padding: 10px 22px;
+    border-radius: 100px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    font-family: inherit;
+    text-decoration: none;
+    cursor: pointer;
+    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .action-link {
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text);
+  }
+
+  .action-share {
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--bg);
+  }
+
+  .action-link:hover,
+  .action-share:hover {
+    transform: translateY(-2px);
+  }
+
+  .action-link:focus-visible,
+  .action-share:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  .share-feedback {
+    min-height: 1.2em;
+    font-size: 0.85rem;
+    color: rgba(248, 250, 252, 0.7);
+    margin: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .halo,
+    .badge-dot {
+      animation: none;
+    }
+    /*
+     * `.qrcode-wrapper:hover` manquait ici — le QR continuait de sauter à
+     * scale(1.03) au survol, seul élément de la page à ignorer la préférence.
+     * Le reset global de Layout.astro ramène la transition à 0.01ms, ce qui
+     * retire l'animation mais pas le déplacement : sans cette ligne, le saut
+     * devenait instantané au lieu de disparaître. Un bloc générique ne peut pas
+     * décider à la place de la page quels `transform` sont décoratifs.
+     */
+    .action-link:hover,
+    .action-share:hover,
+    .qrcode-wrapper:hover {
+      transform: none;
+    }
+  }
+
+  @media print {
+    @page {
+      size: auto;
+      margin: 10mm;
+    }
+    body {
+      background: #ffffff !important;
+      color: #000000 !important;
+    }
+    /* Masquer les éléments interactifs et le superflu */
+    .poster-badge,
+    .poster-actions,
+    .share-feedback,
+    .qrcode-legend,
+    .qrcode-downloads,
+    .seal-verify,
+    .halo {
+      display: none !important;
+    }
+    /* Centrer et optimiser l'affiche pour le papier */
+    .poster {
+      background: #ffffff !important;
+      color: #000000 !important;
+      min-height: 100vh;
+      height: 100%;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      box-sizing: border-box;
+    }
+    .poster-inner {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      flex-grow: 1;
+      padding: 2rem 0;
+    }
+    .poster-message {
+      color: #000000 !important;
+      font-size: clamp(3rem, 8vw, 6rem) !important;
+      margin-top: auto;
+      margin-bottom: auto;
+      text-align: center;
+      page-break-inside: avoid;
+    }
+    .poster-author {
+      color: #000000 !important;
+      font-size: 1.5rem !important;
+      margin-top: 1rem;
+    }
+    .poster-tags {
+      margin-top: 0.5rem;
+    }
+    .poster-tag {
+      color: #000000 !important;
+      border-color: #000000 !important;
+      background: none !important;
+    }
+    .poster-date {
+      color: #666666 !important;
+      margin-top: 0.5rem;
+    }
+    /* Le sceau reste imprimé : c'est lui qui rend l'affiche papier vérifiable */
+    .poster-seal {
+      border-color: #000000 !important;
+      background: none !important;
+      page-break-inside: avoid;
+    }
+    .seal-glyph :global(svg) {
+      /* Une règle CSS l'emporte sur l'attribut de présentation `fill` du SVG */
+      fill: #000000 !important;
+    }
+    .seal-label {
+      color: #666666 !important;
+    }
+    .seal-hash {
+      color: #000000 !important;
+    }
+    .poster-qrcode-container {
+      margin-top: auto;
+      margin-bottom: 1rem;
+      page-break-inside: avoid;
+    }
+    .qrcode-wrapper {
+      background: none !important;
+      border: 1px solid #000000 !important;
+      border-radius: 8px;
+    }
+    .qrcode-wrapper :global(svg rect[fill="#000000"]) {
+      fill: #000000 !important;
+    }
+  }
+</style>

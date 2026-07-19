@@ -4,8 +4,16 @@ import config from '../data/config.json';
 export const prerender = true;
 
 export const GET: APIRoute = async () => {
-  const first = config.billboards[0];
   const allMessages = config.billboards.map(b => `> ${b.message}\n  — ${b.author}`).join('\n\n');
+
+  // Jamais `new Date()` au build : la date affichée est celle de la dernière
+  // publication déclarée dans config.json (build reproductible, CID stable).
+  const boardDates = config.billboards
+    .map((b) => b.date)
+    .filter((d): d is string => typeof d === 'string');
+  const lastPublished = boardDates.length > 0
+    ? boardDates.reduce((a, b) => (Date.parse(a) >= Date.parse(b) ? a : b))
+    : 'non datée';
 
   const content = `# W00-Board — Panneau d'Affichage Décentralisé
 
@@ -13,7 +21,7 @@ export const GET: APIRoute = async () => {
 
 ${allMessages}
 
-**Généré le :** ${new Date().toISOString()}
+**Dernière publication :** ${lastPublished}
 
 ---
 
@@ -30,6 +38,13 @@ Dans \`src/data/config.json\` — tableau \`billboards[]\` dans un dépôt Git p
 En éditant le fichier \`src/data/config.json\` et en poussant le commit.
 GitHub Actions reconstruit et redéploie automatiquement sur Cloudflare Pages,
 puis diffuse sur Mastodon, Bluesky et Nostr.
+
+### Comment vérifier qu'une citation est authentique ?
+Chaque panneau porte une empreinte SHA-256 de son contenu publié.
+Empreintes et chaînes canoniques : \`/llms-full.txt\`, \`/feed.json\` ou \`/build.json\`.
+Recalcul dans le navigateur : \`/verifier/\`.
+Volontairement absentes de ce fichier court : une empreinte séparée de sa chaîne
+source ne se vérifie pas, et ressemblerait à une preuve sans en être une.
 
 ### Quelles technologies sont utilisées ?
 - Astro (framework web statique)

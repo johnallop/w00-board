@@ -17,6 +17,8 @@ export interface BillboardItem {
   author: string;
   tags?: string[];
   accentColor?: string;
+  /** Date de publication ISO 8601 — utilisée par les feeds, le sitemap et le JSON-LD. */
+  date?: string;
 }
 
 export interface BillboardConfig {

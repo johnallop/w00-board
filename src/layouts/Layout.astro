@@ -1,6 +1,8 @@
 ---
 import rawConfig from '../data/config.json';
 import { validateConfig } from '../utils/validateConfig';
+import { IPNS_NAME, IPNS_GATEWAY_URL, IPFS_HISTORY_URL } from '../data/ipfs';
+import type { BillboardItem } from '../types/config';
 
 validateConfig(rawConfig);
 const config = rawConfig;
@@ -8,17 +10,62 @@ const config = rawConfig;
 interface Props {
   title?: string;
   description?: string;
+  /** Chemin de la carte OG (ex. /og/paix.png) — fallback : carte du site. */
+  ogImage?: string;
+  /** Panneau affiché par la page : JSON-LD CreativeWork dédié, sans FAQ/WebSite (réservés à la homepage). */
+  board?: BillboardItem;
+  /** Masquer le footer (utile pour le mode plein écran /live). */
+  hideFooter?: boolean;
 }
 
-const { title = "W00-Board — Panneau d'Affichage Décentralisé", description = config.billboards[0].message } = Astro.props;
+const {
+  title = "W00-Board — Panneau d'Affichage Décentralisé",
+  description = config.billboards[0].message,
+  ogImage = '/og-image.png',
+  board,
+  hideFooter = false,
+} = Astro.props;
 
 const canonicalURL = new URL(Astro.url.pathname, Astro.site || Astro.url);
-const ogImageUrl = new URL('/og-image.png', Astro.site || Astro.url).toString();
+const ogImageUrl = new URL(ogImage, Astro.site || Astro.url).toString();
 const rssUrl = new URL('/feed.xml', Astro.site || Astro.url).toString();
 const jsonFeedUrl = new URL('/feed.json', Astro.site || Astro.url).toString();
 
-// Schema.org — tableau de schemas pour une couverture sémantique maximale
-const jsonLdSchemas = [
+// Date de dernière publication = la plus récente des dates de panneaux.
+// Jamais `new Date()` : le build doit produire les mêmes octets à chaque
+// exécution pour que le CID IPFS reste stable (« Vérité avant apparence »).
+const boardDates = config.billboards.map((b) => b.date).filter((d): d is string => typeof d === 'string');
+const latestBoardDate = boardDates.length > 0
+  ? boardDates.reduce((a, b) => (Date.parse(a) >= Date.parse(b) ? a : b))
+  : undefined;
+
+// Schema.org — page panneau : un seul CreativeWork dédié ;
+// homepage : CreativeWork + WebSite + FAQPage (FAQ jamais dupliquée ailleurs).
+const jsonLdSchemas = board ? [
+  {
+    "@context": "https://schema.org",
+    "@type": "CreativeWork",
+    "name": title,
+    "headline": board.message,
+    "description": description,
+    "text": board.message,
+    "author": {
+      "@type": "Person",
+      "name": board.author
+    },
+    ...(board.date ? { "datePublished": board.date } : {}),
+    ...(board.tags && board.tags.length > 0 ? { "keywords": board.tags.join(', ') } : {}),
+    "image": ogImageUrl,
+    "url": canonicalURL.toString(),
+    "inLanguage": "fr",
+    "isAccessibleForFree": true,
+    "isPartOf": {
+      "@type": "WebSite",
+      "name": "Panneau d'Affichage Décentralisé",
+      "url": (Astro.site || Astro.url).toString()
+    }
+  }
+] : [
   // 1. Œuvre principale
   {
     "@context": "https://schema.org",
@@ -31,7 +78,7 @@ const jsonLdSchemas = [
       "@type": "Person",
       "name": config.billboards[0].author
     },
-    "datePublished": new Date().toISOString(),
+    ...(latestBoardDate ? { "datePublished": latestBoardDate } : {}),
     "image": ogImageUrl,
     "url": canonicalURL.toString(),
     "inLanguage": "fr",
@@ -47,7 +94,7 @@ const jsonLdSchemas = [
     "@type": "WebSite",
     "name": "Panneau d'Affichage Décentralisé",
     "url": (Astro.site || Astro.url).toString(),
-    "description": "Panneau d'affichage décentralisé hébergé sur IPFS, diffusé sur Mastodon, Bluesky et Nostr.",
+    "description": "Panneau d'affichage décentralisé diffusé sur Mastodon, Bluesky et Nostr.",
     "inLanguage": "fr",
     "author": { "@type": "Person", "name": config.billboards[0].author }
   },
@@ -69,7 +116,7 @@ const jsonLdSchemas = [
         "name": "Comment modifier le message du billboard ?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "En modifiant le fichier src/data/config.json dans le dépôt Git source. Un pipeline GitHub Actions reconstruit et redéploie automatiquement le site sur IPFS et diffuse le message sur Mastodon, Bluesky et Nostr."
+          "text": "En modifiant le fichier src/data/config.json dans le dépôt Git source. Un pipeline GitHub Actions reconstruit le site, le redéploie automatiquement sur Cloudflare Pages et diffuse le message sur Mastodon, Bluesky et Nostr."
         }
       },
       {
@@ -77,7 +124,7 @@ const jsonLdSchemas = [
         "name": "Le site peut-il être censuré ?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Non. Le contenu est hébergé sur IPFS (InterPlanetary File System), un réseau distribué décentralisé. Le contenu reste accessible via son hash cryptographique unique même si le nom de domaine est retiré."
+          "text": `Difficilement. Le contenu vit dans un dépôt Git public et reproductible : n'importe qui peut reconstruire et republier le site à l'identique. Il est diffusé sur des protocoles décentralisés (Nostr, ActivityPub, AT Protocol) qu'aucun actor unique ne contrôle, et chaque version est épinglée sur IPFS — adresse stable ipns://${IPNS_NAME}, indépendante de tout hébergeur.`
         }
       }
     ]
@@ -91,9 +138,23 @@ const jsonLdSchemas = [
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- CSP via meta tag (complété par _headers pour Cloudflare Pages) -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="generator" content={Astro.generator} />
+
+    <!--
+      Précharge la SEULE graisse qui porte le message (800). Sans elle, `swap`
+      affiche d'abord la police système puis rebascule : sur un panneau dont le
+      texte fait 158 px, ce changement de métriques déplace plusieurs lignes.
+      Les graisses 400/600 (texte secondaire) restent en chargement paresseux —
+      préchargées aussi, elles entreraient en concurrence avec celle-ci sur une
+      liaison lente. `crossorigin` est obligatoire même en same-origin : les
+      polices sont récupérées en mode CORS, sans lui le préchargement est ignoré
+      et le fichier téléchargé deux fois.
+    -->
+    <link rel="preload" href="/fonts/inter-800.woff2" as="font" type="font/woff2" crossorigin />
+
 
     <!-- SEO -->
     <title>{title}</title>
@@ -126,33 +187,98 @@ const jsonLdSchemas = [
 
     <!-- JSON-LD — schemas multiples -->
     {jsonLdSchemas.map((schema) => (
-      <script type="application/ld+json" is:inline set:html={JSON.stringify(schema)} />
+      <script type="application/ld+json" is:inline set:html={JSON.stringify(schema).replace(/</g, '\\u003c')} />
     ))}
 
-    <!-- Police Inter (Google Fonts) — chargement asynchrone pour ne pas bloquer le rendu -->
-    {config.theme.fontFamily === 'Inter' && (
-      <>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-        <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" />
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" media="print" onload="this.media='all'" />
-        <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" /></noscript>
-      </>
-    )}
 
-    <!-- Cabin Analytics — privacy-first, distingue trafic humain vs bots IA -->
-    <!-- Créer un compte sur withcabin.com pour obtenir votre script personnalisé -->
-    <!-- <script async src="https://scripts.withcabin.com/hello.js"></script> -->
+
+    <!-- Analytics : Cloudflare Web Analytics, activé via le dashboard Cloudflare Pages
+         (Metrics → Enable Web Analytics) qui injecte le beacon automatiquement.
+         La CSP ci-dessus autorise déjà static.cloudflareinsights.com et cloudflareinsights.com.
+         Documentation réseau complète : README, section Analytics. -->
   </head>
   <body>
     <slot />
 
+    {!hideFooter && (
+      <footer class="site-footer">
+        <nav aria-label="Liens de permanence">
+          <a href={IPNS_GATEWAY_URL} rel="noopener">Miroir IPFS</a>
+          <span class="footer-sep" aria-hidden="true">·</span>
+          <a href={IPFS_HISTORY_URL} rel="noopener">Historique des versions</a>
+          <span class="footer-sep" aria-hidden="true">·</span>
+          <a href="https://github.com/johnallop/w00-board" rel="noopener">Source</a>
+        </nav>
+        <p class="footer-note">
+          Adresse décentralisée stable : <code>ipns://{IPNS_NAME}</code>
+        </p>
+      </footer>
+    )}
+
+    {/*
+      La région live existe TOUJOURS dans le DOM, même vide.
+
+      Un aria-live inséré en même temps que son contenu n'est, sur la plupart
+      des lecteurs d'écran, pas annoncé du tout : la région doit préexister au
+      changement pour que le changement soit observé. On ne cache donc que la
+      boîte intérieure — le conteneur, lui, est là dès le premier octet et ne
+      coûte rien tant qu'il est vide.
+    */}
+    <div class="sw-maj" role="status" aria-live="polite">
+      <div class="sw-maj__boite" id="sw-maj" hidden>
+        <p class="sw-maj__texte">Une nouvelle version de cette page est disponible.</p>
+        <button type="button" id="sw-maj-recharger" class="sw-maj__bouton">Recharger</button>
+        <button type="button" id="sw-maj-ignorer" class="sw-maj__ignorer">
+          <span aria-hidden="true">×</span>
+          <span class="sr-only">Ignorer cette notification</span>
+        </button>
+      </div>
+    </div>
+
     <script>
+      import { surveillerMiseAJour } from '../utils/swUpdate';
+
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch((err) => {
-            console.error('ServiceWorker registration failed:', err);
-          });
+          navigator.serviceWorker
+            .register('/sw.js')
+            .then((enregistrement) => {
+              const boite = document.getElementById('sw-maj');
+              if (!boite) return;
+
+              document
+                .getElementById('sw-maj-recharger')
+                ?.addEventListener('click', () => location.reload());
+              document.getElementById('sw-maj-ignorer')?.addEventListener('click', () => {
+                boite.hidden = true;
+              });
+
+              /*
+               * TODO(contribution) — prévenir ou recharger ?
+               *
+               * Ce rappel est la couture de politique : swUpdate.ts sait DIRE
+               * qu'une version en a remplacé une autre, il ne décide pas quoi en
+               * faire. Les deux réponses sont défendables et ne servent pas le
+               * même visiteur.
+               *
+               * La bannière respecte un état que le rechargement détruirait :
+               * /live porte son filtre dans l'URL et /b/[id] tient une image en
+               * blob URL, qui ne survit pas au rechargement. Mais une bannière
+               * ne sert à rien sur un écran mural — personne ne clique — et
+               * /live ne se rafraîchit par aucun autre moyen : pas de minuteur,
+               * pas de flux. Cet écran-là resterait périmé indéfiniment.
+               *
+               * Un rechargement automatique demanderait par ailleurs un drapeau
+               * `enCoursDeRechargement`, sans quoi le controllerchange déclenché
+               * par le rechargement lui-même reboucle.
+               */
+              surveillerMiseAJour(enregistrement, navigator.serviceWorker, () => {
+                boite.hidden = false;
+              });
+            })
+            .catch((err) => {
+              console.error('ServiceWorker registration failed:', err);
+            });
         });
       }
     </script>
@@ -160,11 +286,219 @@ const jsonLdSchemas = [
 </html>
 
 <style is:global>
+  @font-face {
+    font-family: 'Inter';
+    src: url('/fonts/inter-400.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Inter';
+    src: url('/fonts/inter-600.woff2') format('woff2');
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Inter';
+    src: url('/fonts/inter-800.woff2') format('woff2');
+    font-weight: 800;
+    font-style: normal;
+    font-display: swap;
+  }
+
   html, body {
     margin: 0;
     padding: 0;
     width: 100%;
     height: 100%;
     overflow-x: hidden;
+  }
+
+  /*
+   * Filet global « mouvement réduit ».
+   *
+   * Chaque page portait son propre bloc prefers-reduced-motion énumérant les
+   * sélecteurs animés, et chacune de ces listes avait dérivé : `.live-dot::after`
+   * jamais couvert (index), `.billboard-card:focus-within` couvert mais d'une
+   * spécificité inférieure au reset (index), `.ui-btn-link:hover` absent alors
+   * que `.ui-btn:hover` y était (live), `.qrcode-wrapper:hover` jamais listé
+   * (b/[id]). Aucune de ces omissions n'est une faute d'inattention isolée :
+   * une liste tenue à la main ne se met pas à jour quand on ajoute une
+   * animation ailleurs, donc elle finit toujours par mentir.
+   *
+   * Ce bloc ne nomme donc aucun sélecteur — il neutralise la DURÉE de toute
+   * animation et de toute transition, y compris sur les pseudo-éléments. Il ne
+   * peut pas dériver puisqu'il n'énumère rien.
+   *
+   * Ce qu'il ne fait PAS : supprimer un `transform` de survol. Sans durée, le
+   * transform s'applique instantanément — pas de mouvement perçu, donc pas de
+   * violation. Les blocs par page restent néanmoins utiles quand le déplacement
+   * lui-même gêne (repère visuel qui saute), et ils sont conservés.
+   *
+   * `!important` est nécessaire : les styles de page sont scopés et plus
+   * spécifiques ; seule la cascade `!important` les dépasse à coup sûr.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+
+    html {
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /*
+   * Texte réservé aux technologies d'assistance. Pas de `display: none` : un
+   * lecteur d'écran ne lirait rien du tout.
+   *
+   * Cette règle vivait dans le <style> SCOPÉ d'index.astro, donc elle
+   * n'existait que sur l'accueil. N'importe quelle autre page qui écrivait
+   * class="sr-only" — à commencer par la bannière de mise à jour de ce gabarit
+   * même, qui est rendue sur TOUTES les pages — affichait le
+   * texte en clair, sans que rien ne le signale : une classe utilitaire qui ne
+   * s'applique pas ne casse pas la page, elle la rend simplement bavarde. Une
+   * seule définition, globale, supprime le piège.
+   */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+</style>
+
+<style>
+  .site-footer {
+    padding: 2rem 1.5rem 2.5rem;
+    text-align: center;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 0.85rem;
+    color: rgba(248, 250, 252, 0.72);
+    background: #0f172a;
+    border-top: 1px solid rgba(248, 250, 252, 0.08);
+  }
+
+  .site-footer a {
+    color: #7dd3fc;
+    text-decoration: none;
+  }
+
+  .site-footer a:hover,
+  .site-footer a:focus-visible {
+    text-decoration: underline;
+  }
+
+  .site-footer a:focus-visible {
+    outline: 2px solid #7dd3fc;
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  .footer-sep {
+    margin: 0 0.6rem;
+    opacity: 0.5;
+  }
+
+  .footer-note {
+    margin: 0.75rem 0 0;
+    font-size: 0.75rem;
+    color: rgba(248, 250, 252, 0.55);
+  }
+
+  .footer-note code {
+    font-size: 0.72rem;
+    overflow-wrap: anywhere;
+    color: rgba(248, 250, 252, 0.72);
+  }
+
+  /*
+   * La bannière de mise à jour.
+   *
+   * `position: fixed` plutôt qu'un bandeau dans le flux : elle apparaît sur une
+   * page déjà lue, et pousser le contenu sous les yeux du visiteur au moment où
+   * il lit est une agression. Elle se pose donc par-dessus, en bas, là où on ne
+   * lit pas.
+   *
+   * Aucune animation d'entrée : le bloc `prefers-reduced-motion` global réduit
+   * toute durée à 0.01ms, donc une apparition animée serait de toute façon
+   * instantanée pour une partie des visiteurs. Autant qu'elle le soit pour
+   * tout le monde, plutôt que d'écrire un effet qui ment sur la moitié des
+   * écrans.
+   */
+  .sw-maj__boite {
+    position: fixed;
+    z-index: 50;
+    left: 50%;
+    bottom: 1rem;
+    transform: translateX(-50%);
+    max-width: min(30rem, calc(100vw - 2rem));
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.7rem 0.75rem 0.7rem 1rem;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 0.85rem;
+    color: rgba(248, 250, 252, 0.92);
+    background: #0f172a;
+    border: 1px solid rgba(125, 211, 252, 0.35);
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  }
+
+  /* `hidden` doit gagner contre `display: flex`, qui est plus spécifique que
+     la règle par défaut du navigateur sur l'attribut. */
+  .sw-maj__boite[hidden] {
+    display: none;
+  }
+
+  .sw-maj__texte {
+    margin: 0;
+    flex: 1 1 auto;
+  }
+
+  .sw-maj__bouton {
+    flex: 0 0 auto;
+    padding: 0.4rem 0.8rem;
+    font: inherit;
+    color: #0f172a;
+    background: #7dd3fc;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .sw-maj__ignorer {
+    flex: 0 0 auto;
+    /* 2.25rem = 36px : sous les 44px recommandés au toucher, mais c'est une
+       action secondaire et non destructrice — ignorer se rattrape en
+       rechargeant. Le bouton principal, lui, est confortable. */
+    width: 2.25rem;
+    height: 2.25rem;
+    font: inherit;
+    font-size: 1.1rem;
+    line-height: 1;
+    color: rgba(248, 250, 252, 0.72);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .sw-maj__bouton:focus-visible,
+  .sw-maj__ignorer:focus-visible {
+    outline: 2px solid #7dd3fc;
+    outline-offset: 3px;
   }
 </style>

@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>W00-BOARD — Concept 2 : La matrice LED</title>
+<!--
+  CONCEPT 2 — LA MATRICE LED
+  ==========================
+  Hypothèse : le produit s'appelle « panneau ». Le rendu actuel est une
+  carte web sombre en glassmorphism — le vocabulaire visuel du dashboard
+  SaaS, pas celui de la signalétique urbaine.
+
+  Ce concept assume l'objet : un panneau à diodes. Le message est
+  composé de points lumineux sur une grille régulière, comme un
+  afficheur de gare ou un panneau à messages variables.
+
+  Effet visé : reconnaissance immédiate du TYPE d'objet, avant même la
+  lecture. Un afficheur LED est lu comme une information publique et
+  actuelle ; une carte web est lue comme du contenu parmi d'autres.
+  C'est un gain de crédibilité et d'urgence, pas de décoration.
+
+  Coût : deux dégradés répétés et un mix-blend-mode. Zéro image, zéro
+  dépendance. Le coût réel est une passe de composition plein cadre —
+  à mesurer sur kiosque bas de gamme (voir « Validation nécessaire »).
+-->
+<style>
+  :root {
+    --bg: #05070d;
+    --diode: #7dd3fc;
+    --ink: #eaf6ff;
+    /* Pas de diode = intervalle entre deux points. Sous 3 px la grille
+       disparaît sur écran HiDPI ; au-dessus de 8 px le texte devient
+       illisible en dessous de ~40 px de corps. */
+    --pas: 5px;
+    --stack: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--stack);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panneau {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: clamp(1rem, 3vh, 2.5rem);
+    padding: clamp(1.5rem, 5vw, 5rem);
+    overflow: hidden;
+    /* Cadre du boîtier : donne l'objet physique sans une seule image. */
+    border: clamp(6px, 1.2vw, 18px) solid #11161f;
+    box-shadow: inset 0 0 clamp(2rem, 8vw, 8rem) rgba(0, 0, 0, 0.9);
+  }
+
+  /* La grille de diodes. Posée au-DESSUS du texte et non en dessous :
+     c'est elle qui découpe les glyphes en points. En dessous, elle ne
+     serait qu'un fond texturé — un effet décoratif sans lecture. */
+  .panneau::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      repeating-linear-gradient(
+        to right,
+        rgba(0, 0, 0, 0.85) 0 1px,
+        transparent 1px var(--pas)
+      ),
+      repeating-linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0.85) 0 1px,
+        transparent 1px var(--pas)
+      );
+    /* mix-blend-mode crée un contexte d'empilement : rien de ce qui est
+       à l'intérieur ne doit avoir besoin d'en sortir. Ici l'élément est
+       purement décoratif et pointer-events: none — aucun clic piégé.
+       C'est le piège exact qui tuait les .tag-chip de l'accueil. */
+    mix-blend-mode: multiply;
+    z-index: 3;
+  }
+
+  .message {
+    position: relative;
+    z-index: 1;
+    margin: 0;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.02;
+    font-size: clamp(2rem, min(11vw, 22vh), 12rem);
+    text-wrap: balance;
+    overflow-wrap: break-word;
+    color: var(--diode);
+    /* Le halo est ce qui distingue une diode allumée d'un aplat de
+       couleur. Deux rayons : un serré pour le corps du glyphe, un large
+       pour la diffusion sur le boîtier. */
+    text-shadow:
+      0 0 clamp(4px, 0.5vw, 10px) rgba(125, 211, 252, 0.85),
+      0 0 clamp(18px, 2.5vw, 48px) rgba(56, 189, 248, 0.45);
+  }
+
+  .auteur {
+    position: relative;
+    z-index: 1;
+    margin: 0;
+    font-size: clamp(0.875rem, 1.6vw, 1.5rem);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    /* #eaf6ff à 0,7 sur #05070d ≈ 10:1. */
+    color: rgba(234, 246, 255, 0.7);
+  }
+
+  /* Balayage lent : évoque le rafraîchissement d'un afficheur réel.
+     Strictement décoratif — d'où la désactivation totale plus bas. */
+  .balayage {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(125, 211, 252, 0.06) 48%,
+      rgba(125, 211, 252, 0.10) 50%,
+      rgba(125, 211, 252, 0.06) 52%,
+      transparent 100%
+    );
+    animation: balaye 7s linear infinite;
+  }
+
+  @keyframes balaye {
+    from { transform: translateY(-100%); }
+    to   { transform: translateY(100%); }
+  }
+
+  /* Le balayage n'apporte AUCUNE information : sous prefers-reduced-motion
+     il ne ralentit pas, il disparaît. On retire aussi will-change
+     implicite en supprimant l'élément du flux de composition. */
+  @media (prefers-reduced-motion: reduce) {
+    .balayage { display: none; }
+  }
+
+  /* Écran étroit : le pas de grille doit rétrécir avec le corps, sinon
+     la trame mange les glyphes au lieu de les composer. */
+  @media (max-width: 640px) {
+    :root { --pas: 4px; }
+  }
+
+  /* ---- Bandeau d'essai — hors concept, sert à la revue ---- */
+  .essai {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.75rem clamp(1.5rem, 5vw, 5rem);
+    background: #11161f;
+  }
+
+  .essai button {
+    font: inherit;
+    font-size: 0.8125rem;
+    padding: 0.4rem 0.8rem;
+    border-radius: 999px;
+    border: 1px solid rgba(234, 246, 255, 0.25);
+    background: transparent;
+    color: rgba(234, 246, 255, 0.8);
+    cursor: pointer;
+  }
+
+  .essai button[aria-pressed='true'] {
+    background: var(--diode);
+    border-color: var(--diode);
+    color: #05070d;
+    font-weight: 700;
+  }
+
+  .essai button:focus-visible {
+    outline: 2px solid var(--diode);
+    outline-offset: 3px;
+  }
+</style>
+</head>
+<body>
+  <div class="panneau">
+    <div class="balayage" aria-hidden="true"></div>
+    <h1 class="message" id="msg">Paix sur vous</h1>
+    <p class="auteur">W00</p>
+  </div>
+
+  <nav class="essai" aria-label="Jeux de test">
+    <button type="button" aria-pressed="true" data-i="0">Court</button>
+    <button type="button" aria-pressed="false" data-i="1">Long (178)</button>
+    <button type="button" aria-pressed="false" data-i="2">Emoji</button>
+    <button type="button" aria-pressed="false" data-i="3">Accents</button>
+    <button type="button" aria-pressed="false" data-i="4">RTL (arabe)</button>
+    <button type="button" aria-pressed="false" data-i="5">CJK</button>
+  </nav>
+
+<script>
+  const CAS = [
+    { t: 'Paix sur vous', dir: 'ltr' },
+    {
+      t: 'Que la paix soit sur vous et sur tous ceux qui cherchent la lumière ' +
+         'dans la nuit, car nul ne marche seul quand il porte en lui la ' +
+         'promesse du matin qui vient toujours après tout.',
+      dir: 'ltr',
+    },
+    { t: 'La paix 🕊️ pour tous 🌍 sans exception ✨🙏', dir: 'ltr' },
+    { t: 'À Éphèse, çà et là, l’âme s’ouvre — Noël, Œuvre, Ïambe', dir: 'ltr' },
+    { t: 'السلام عليكم ورحمة الله وبركاته', dir: 'rtl' },
+    { t: '愿平安与你同在', dir: 'ltr' },
+  ];
+
+  const el = document.getElementById('msg');
+  const boutons = [...document.querySelectorAll('.essai button')];
+
+  boutons.forEach((b) => b.addEventListener('click', () => {
+    const cas = CAS[Number(b.dataset.i)];
+    el.textContent = cas.t;
+    el.setAttribute('dir', cas.dir);
+    boutons.forEach((o) => o.setAttribute('aria-pressed', String(o === b)));
+  }));
+</script>
+</body>
+</html>

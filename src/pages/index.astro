@@ -28,6 +28,10 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
           <span class="brand-badge">Réseau Actif</span>
         </div>
         <div class="board-meta">
+          <a href="/live" class="live-link" aria-label="Lancer le mode plein écran de l'affiche dans le ciel">
+            ▶ Mode Ciel
+          </a>
+          <span class="meta-sep" aria-hidden="true">·</span>
           <span class="board-count">{billboards.length} panneau{billboards.length > 1 ? 'x' : ''}</span>
         </div>
       </div>
@@ -36,12 +40,12 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
     <!-- Filtres par tag -->
     {allTags.length > 0 && (
       <nav class="filter-bar" aria-label="Filtrer par tag">
-        <button class="filter-btn active" data-tag="all" type="button">
+        <button class="filter-btn" data-tag="all" type="button" aria-pressed="true">
           Tous
           <span class="filter-count">{billboards.length}</span>
         </button>
         {allTags.map(tag => (
-          <button class="filter-btn" data-tag={tag} type="button">
+          <button class="filter-btn" data-tag={tag} type="button" aria-pressed="false">
             #{tag}
             <span class="filter-count">{billboards.filter(b => b.tags?.includes(tag)).length}</span>
           </button>
@@ -49,65 +53,81 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
       </nav>
     )}
 
-    <!-- Grille de panneaux -->
-    <main class="board-grid" id="board-grid" role="list">
-      {billboards.map((board, i) => {
-        const accent = board.accentColor || globalAccent;
-        return (
-          <article
-            class="billboard-card"
-            role="listitem"
-            data-tags={JSON.stringify(board.tags ?? [])}
-            style={`--card-accent: ${accent}; --i: ${i}`}
-          >
-            <div class="card-glow" aria-hidden="true"></div>
-            <div class="card-body">
-              <header class="card-top">
-                <div class="live-pill">
-                  <span class="live-dot" aria-hidden="true"></span>
-                  <span>Live</span>
-                </div>
-                {board.accentColor && board.accentColor !== globalAccent && (
-                  <div class="accent-swatch" style={`background: ${board.accentColor}`} aria-hidden="true"></div>
-                )}
-              </header>
+    <!-- Filtrer change le contenu sans déplacer le focus : sans région de
+         statut, un lecteur d'écran n'annonce rien du tout (WCAG 4.1.3).
+         Vide au build, remplie par le script — la sortie reste déterministe. -->
+    <p class="sr-only" id="filter-status" role="status"></p>
 
-              <p class="card-message">{board.message}</p>
+    <!-- Grille de panneaux. Le rôle de liste vit sur la grille, pas sur <main> :
+         un role="list" sur <main> écrasait le repère de navigation principal. -->
+    <main class="board-main">
+      <div class="board-grid" id="board-grid" role="list">
+        {billboards.map((board, i) => {
+          const accent = board.accentColor || globalAccent;
+          return (
+            <article
+              class="billboard-card"
+              role="listitem"
+              data-tags={JSON.stringify(board.tags ?? [])}
+              style={`--card-accent: ${accent}; --i: ${i}`}
+            >
+              <!-- Lien enveloppant : les puces de tag repassent au-dessus via z-index.
+                   Équilibre fragile — lire le commentaire de .card-body plus bas. -->
+              <a
+                href={`/b/${board.id}/`}
+                class="main-card-link"
+                aria-label={`Voir le panneau de ${board.author} : "${board.message}"`}
+              ></a>
 
-              <footer class="card-footer">
-                <span class="card-author">— {board.author}</span>
-                {board.tags && board.tags.length > 0 && (
-                  <div class="card-tags" aria-label="Tags">
-                    {board.tags.map(tag => (
-                      <button
-                        class="tag-chip"
-                        data-filter-tag={tag}
-                        type="button"
-                        aria-label={`Filtrer par ${tag}`}
-                      >
-                        #{tag}
-                      </button>
-                    ))}
+              <div class="card-glow" aria-hidden="true"></div>
+              <div class="card-body">
+                <header class="card-top">
+                  <div class="live-pill">
+                    <span class="live-dot" aria-hidden="true"></span>
+                    <span>Live</span>
                   </div>
-                )}
-              </footer>
-            </div>
-          </article>
-        );
-      })}
+                  {board.accentColor && board.accentColor !== globalAccent && (
+                    <div class="accent-swatch" style={`background: ${board.accentColor}`} aria-hidden="true"></div>
+                  )}
+                </header>
 
-      <!-- Carte d'ajout — purement décorative, aria-hidden -->
-      <div class="add-card" aria-hidden="true">
-        <div class="add-icon">+</div>
-        <p class="add-text">Nouveau panneau</p>
-        <code class="add-hint">config.json → billboards[]</code>
+                <h2 class="card-message">{board.message}</h2>
+
+                <footer class="card-footer">
+                  <span class="card-author">— {board.author}</span>
+                  {board.tags && board.tags.length > 0 && (
+                    <div class="card-tags" aria-label="Tags">
+                      {board.tags.map(tag => (
+                        <button
+                          class="tag-chip"
+                          data-filter-tag={tag}
+                          type="button"
+                          aria-label={`Filtrer par ${tag}`}
+                        >
+                          #{tag}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </footer>
+              </div>
+            </article>
+          );
+        })}
+
+        <!-- Carte d'ajout — purement décorative, aria-hidden -->
+        <div class="add-card" aria-hidden="true">
+          <div class="add-icon">+</div>
+          <p class="add-text">Nouveau panneau</p>
+          <code class="add-hint">config.json → billboards[]</code>
+        </div>
+      </div>
+
+      <!-- Message vide (aucun résultat pour le filtre) -->
+      <div class="empty-state" id="empty-state" hidden aria-live="polite">
+        <p>Aucun panneau pour ce tag.</p>
       </div>
     </main>
-
-    <!-- Message vide (aucun résultat pour le filtre) -->
-    <div class="empty-state" id="empty-state" hidden aria-live="polite">
-      <p>Aucun panneau pour ce tag.</p>
-    </div>
 
   </div>
 </Layout>
@@ -116,10 +136,15 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
   const filterBtns = document.querySelectorAll<HTMLButtonElement>('.filter-btn');
   const cards = document.querySelectorAll<HTMLElement>('.billboard-card');
   const emptyState = document.getElementById('empty-state');
+  const status = document.getElementById('filter-status');
   const tagChips = document.querySelectorAll<HTMLButtonElement>('.tag-chip');
 
   function applyFilter(tag: string) {
-    filterBtns.forEach(b => b.classList.toggle('active', b.dataset.tag === tag));
+    // aria-pressed est la SEULE source de vérité : le style s'accroche à
+    // [aria-pressed="true"], donc l'état vu et l'état annoncé ne peuvent pas
+    // diverger. Avec une classe .active en parallèle, un oubli d'un côté
+    // restait invisible de l'autre.
+    filterBtns.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tag === tag)));
 
     let visible = 0;
     cards.forEach(card => {
@@ -130,24 +155,42 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
     });
 
     if (emptyState) emptyState.hidden = visible > 0;
+    if (status) {
+      const quoi = tag === 'all' ? 'tous les tags' : `le tag ${tag}`;
+      status.textContent = `${visible} panneau${visible > 1 ? 'x' : ''} pour ${quoi}.`;
+    }
   }
 
   filterBtns.forEach(btn => {
     btn.addEventListener('click', () => applyFilter(btn.dataset.tag || 'all'));
   });
 
-  // Clic sur un tag dans une carte = filtre par ce tag
+  // Clic sur un tag dans une carte = filtre par ce tag.
+  // Le focus rejoint le bouton de filtre correspondant : l'état actif vit
+  // là-haut, et une navigation au clavier doit suivre le changement.
   tagChips.forEach(chip => {
     chip.addEventListener('click', (e) => {
       e.stopPropagation();
-      applyFilter(chip.dataset.filterTag || 'all');
+      const tag = chip.dataset.filterTag || 'all';
+      applyFilter(tag);
+      document.querySelector<HTMLButtonElement>(`.filter-btn[data-tag="${CSS.escape(tag)}"]`)?.focus();
     });
   });
 </script>
 
-<style define:vars={{ bgColor, textColor, globalAccent, fontFamily }}>
+<style>
   /* ── Reset & base ─────────────────────────────────────────────────────── */
   .page {
+    /* Gabarit partagé par l'en-tête, les filtres et la grille : une seule
+       source pour l'alignement des trois. Fixe jusqu'à ~1830 px — le desktop
+       ne bouge pas — puis fluide, puis replafonné. Un max-width en px seul
+       laissait les deux tiers d'un écran 4K vides alors que le contenu, lui,
+       est fluide : la borne fixe devenait la contrainte dominante. */
+    --shell: clamp(1280px, 70vw, 2040px);
+    /* Hauteur de l'en-tête collant, consommée par le `top` de .filter-bar.
+       Elle était écrite en dur (57px / 53px) des deux côtés : changer un
+       padding décalait silencieusement la barre de filtres. */
+    --header-h: 3.5rem;
     min-height: 100vh;
     background-color: var(--bg);
     color: var(--text);
@@ -216,13 +259,18 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
   }
 
   .header-inner {
-    max-width: 1280px;
+    max-width: var(--shell);
     margin: 0 auto;
-    padding: 1rem 2rem;
+    padding: 0 2rem;
+    min-height: var(--header-h);
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     justify-content: space-between;
   }
+
+  /* `.sr-only` a migré vers le <style is:global> de Layout.astro : définie ici,
+     elle ne valait que pour cette page. Voir le commentaire là-bas. */
 
   .brand {
     display: flex;
@@ -267,16 +315,34 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
     font-weight: 500;
   }
 
+  .live-link {
+    font-size: 0.8rem;
+    color: var(--accent);
+    font-weight: 700;
+    text-decoration: none;
+    transition: color 0.15s ease;
+  }
+
+  .live-link:hover {
+    color: #fff;
+  }
+
+  .meta-sep {
+    margin: 0 0.5rem;
+    color: rgba(255,255,255,0.25);
+  }
+
+
   /* ── Barre de filtres ─────────────────────────────────────────────────── */
   .filter-bar {
     position: sticky;
-    top: 57px;
+    top: var(--header-h);
     z-index: 90;
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
     padding: 0.875rem 2rem;
-    max-width: 1280px;
+    max-width: var(--shell);
     margin: 0 auto;
   }
 
@@ -292,7 +358,7 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
     font-size: 0.8rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
     font-family: inherit;
   }
 
@@ -302,10 +368,20 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
     background: rgba(255,255,255,0.08);
   }
 
-  .filter-btn.active {
+  /* L'état actif se lit sur l'attribut ARIA, pas sur une classe parallèle :
+     ce qui est vu et ce qui est annoncé ne peuvent plus diverger. */
+  .filter-btn[aria-pressed='true'] {
     background: var(--accent);
     border-color: var(--accent);
     color: #0f172a;
+  }
+
+  .filter-btn:focus-visible,
+  .tag-chip:focus-visible,
+  .live-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 100px;
   }
 
   .filter-count {
@@ -314,7 +390,7 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
     color: rgba(255,255,255,0.55);
   }
 
-  .filter-btn.active .filter-count {
+  .filter-btn[aria-pressed='true'] .filter-count {
     color: rgba(15,23,42,0.7);
   }
 
@@ -324,7 +400,7 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 1.5rem;
     padding: 1.5rem 2rem 4rem;
-    max-width: 1280px;
+    max-width: var(--shell);
     margin: 0 auto;
     position: relative;
     z-index: 10;
@@ -342,14 +418,35 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
       rgba(255,255,255,0.02) 100%
     );
     animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
-    animation-delay: calc(var(--i) * 80ms);
+    /* Le décalage est plafonné au 7e panneau. À 80 ms sans plafond, une
+       douzaine de cartes repoussait la dernière à ~960 ms après le premier
+       rendu : le plus grand bloc de texte de la page arrivait donc APRÈS le
+       LCP, et la page paraissait charger deux fois. Le plafond garde l'effet
+       de cascade là où l'œil le voit (les premières cartes) et rend la fin
+       de grille immédiate, quel que soit le nombre de panneaux. */
+    animation-delay: calc(min(var(--i), 6) * 60ms);
     will-change: transform, opacity;
-    transition: transform 0.3s ease;
+    transition: transform 0.3s ease, box-shadow 0.3s ease, outline 0.3s ease;
   }
 
-  .billboard-card:hover {
+  .billboard-card:hover,
+  .billboard-card:focus-within {
     transform: translateY(-4px);
   }
+
+  .billboard-card:focus-within {
+    outline: 2px solid var(--card-accent);
+    outline-offset: 4px;
+  }
+
+  .main-card-link {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: 20px;
+    outline: none;
+  }
+
 
   .card-glow {
     position: absolute;
@@ -368,13 +465,25 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
     opacity: 0.12;
   }
 
+  /*
+   * ⚠️ N'AJOUTEZ PAS backdrop-filter, filter, transform, opacity < 1,
+   * container-type ni will-change ici. Chacune de ces propriétés crée un
+   * CONTEXTE D'EMPILEMENT sur .card-body, ce qui enferme le `z-index: 2` des
+   * .tag-chip à l'intérieur de ce contexte. Les puces repassent alors SOUS
+   * .main-card-link (z-index: 1, frère de .card-body), et le clic ouvre le
+   * panneau au lieu de filtrer — sans erreur console, sans test rouge.
+   *
+   * C'est exactement ce qui se produisait : `backdrop-filter: blur(12px)`
+   * était posé ici. Il est retiré. Le fond est à 88 % d'opacité, donc seuls
+   * 12 % de l'arrière-plan transparaissaient, et cet arrière-plan est une
+   * grille à 2,5 % de blanc — soit un delta visuel de l'ordre de 0,3 %. En
+   * prime, une passe de composition plein cadre en moins PAR CARTE.
+   */
   .card-body {
     background: rgba(15, 23, 42, 0.88);
     border-radius: 19px;
     padding: 1.75rem;
     height: 100%;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
     display: flex;
     flex-direction: column;
   }
@@ -431,14 +540,25 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
   }
 
   .card-message {
-    font-size: 1.6rem;
+    /* Fluide plutôt que deux paliers fixes (1.35rem / 1.6rem via media query).
+       Vérifié : 360 px → 21,6 px (identique à l'ancien mobile), 1440 px →
+       26,3 px (≈ l'ancien 1.6rem), 3840 px → plafonné à 28 px. Entre les deux
+       il n'y a plus de saut à 768 px. */
+    font-size: clamp(1.35rem, 1.15rem + 0.55vw, 1.75rem);
     font-weight: 800;
     line-height: 1.25;
     letter-spacing: -0.025em;
     margin: 0 0 auto 0;
     padding-bottom: 1.25rem;
     color: var(--text);
-    word-break: break-word;
+    /* `word-break: break-word` est un alias déprécié, non spécifié ; c'est
+       `overflow-wrap` qui est la propriété réelle. Elle ne coupe QUE les mots
+       qui débordent seuls — une URL, un mot-dièse allemand — au lieu de
+       césurer n'importe où. */
+    overflow-wrap: break-word;
+    /* Équilibre les lignes d'un message court : évite l'orphelin d'un seul
+       mot sur la dernière ligne, qui casse la lecture à distance. */
+    text-wrap: balance;
   }
 
   .card-footer {
@@ -470,8 +590,12 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
     background: rgba(255,255,255,0.04);
     color: rgba(255,255,255,0.5);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
     font-family: inherit;
+    /* Ce z-index n'a d'effet que tant que .card-body ne crée pas de contexte
+       d'empilement — voir le bloc d'avertissement au-dessus de .card-body. */
+    position: relative;
+    z-index: 2;
   }
 
   .tag-chip:hover {
@@ -500,23 +624,27 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
     border-color: rgba(255,255,255,0.2);
   }
 
+  /* Alphas relevés : ce bloc est aria-hidden (décision assumée, il ne
+     s'adresse pas aux lecteurs d'écran), mais il reste VISIBLE. À 0,2–0,3 le
+     texte tombait entre 1,9:1 et 2,7:1 — illisible pour une vision basse,
+     alors même qu'il porte l'instruction utile (config.json → billboards[]). */
   .add-icon {
     font-size: 2rem;
     font-weight: 300;
-    color: rgba(255,255,255,0.2);
+    color: rgba(255,255,255,0.5);
     line-height: 1;
   }
 
   .add-text {
     font-size: 0.85rem;
     font-weight: 600;
-    color: rgba(255,255,255,0.3);
+    color: rgba(255,255,255,0.6);
     margin: 0;
   }
 
   .add-hint {
     font-size: 0.7rem;
-    color: rgba(255,255,255,0.2);
+    color: rgba(255,255,255,0.55);
     font-family: monospace;
     background: rgba(255,255,255,0.04);
     padding: 2px 8px;
@@ -524,11 +652,15 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
   }
 
   /* ── État vide ────────────────────────────────────────────────────────── */
+  /* C'était le pire contraste du dépôt : 0,3 d'alpha sur #0f172a = 2,70:1,
+     soit très en dessous du 4,5:1 exigé. Ironique pour le SEUL texte affiché
+     quand la grille est vide — le moment où l'utilisateur a le plus besoin
+     d'une explication. 0,72 donne 9,10:1. */
   .empty-state {
     text-align: center;
     padding: 4rem 2rem;
-    color: rgba(255,255,255,0.3);
-    font-size: 0.9rem;
+    color: rgba(255,255,255,0.72);
+    font-size: 1rem;
   }
 
   /* ── Animations ───────────────────────────────────────────────────────── */
@@ -551,10 +683,15 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
 
   /* ── Responsive ───────────────────────────────────────────────────────── */
   @media (max-width: 768px) {
-    .header-inner { padding: 0.875rem 1rem; }
-    .filter-bar   { padding: 0.75rem 1rem; top: 53px; }
+    /* Redéclarer --header-h suffit : .filter-bar lit `top: var(--header-h)`,
+       donc la barre suit automatiquement. Avant, la hauteur était écrite en
+       dur des deux côtés (57 px / 53 px) et un changement de padding
+       décalait la barre collante sans que rien ne le signale. */
+    .page         { --header-h: 3.25rem; }
+    .header-inner { padding: 0 1rem; }
+    .filter-bar   { padding: 0.75rem 1rem; }
     .board-grid   { padding: 1rem 1rem 3rem; gap: 1rem; }
-    .card-message { font-size: 1.35rem; }
+    /* Plus de surcharge de .card-message : le clamp() couvre déjà mobile. */
   }
 
   @media (max-width: 480px) {
@@ -564,10 +701,23 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
 
   /* ── Accessibilité : mouvement réduit ─────────────────────────────────── */
   @media (prefers-reduced-motion: reduce) {
-    .bg-orb, .brand-pulse, .live-dot, .billboard-card {
+    /* .live-dot::after était absent de cette liste : le halo pulsé continuait
+       à s'agrandir en boucle sur chaque carte. Un pseudo-élément n'hérite pas
+       d'un `animation: none` posé sur son hôte — il doit être nommé. */
+    .bg-orb, .brand-pulse, .live-dot, .live-dot::after, .billboard-card {
       animation: none;
     }
     .billboard-card { opacity: 1; transform: none; }
-    .billboard-card:hover { transform: none; }
+    /* :focus-within est un sélecteur DISTINCT de :hover, de même spécificité :
+       neutraliser l'un ne neutralisait pas l'autre. Une navigation au clavier
+       déclenchait donc le soulèvement de carte que le réglage système
+       demandait explicitement d'éviter. */
+    .billboard-card:hover,
+    .billboard-card:focus-within { transform: none; }
+    /* Sans animation, `will-change` ne fait plus qu'une chose : maintenir une
+       couche de composition par carte, en mémoire, pour rien. */
+    .bg-orb, .billboard-card, .card-glow, .live-dot, .live-dot::after {
+      will-change: auto;
+    }
   }
 </style>

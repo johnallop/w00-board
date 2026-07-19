@@ -1,0 +1,529 @@
+---
+import Layout from '../layouts/Layout.astro';
+import rawConfig from '../data/config.json';
+
+import { validateConfig } from '../utils/validateConfig';
+import { canonicalizeBillboard, computeFingerprint, formatFingerprint } from '../utils/posterHash';
+import { generateSealSvg } from '../utils/posterSeal';
+
+validateConfig(rawConfig);
+
+const { theme } = rawConfig;
+
+// Chaque panneau est publié avec sa chaîne canonique ET son empreinte : c'est la
+// paire qui rend le contrôle possible. Publier l'empreinte seule reviendrait à
+// demander de croire sur parole.
+const entries = await Promise.all(
+  rawConfig.billboards.map(async (board) => {
+    const accent = board.accentColor ?? theme.accentColor;
+    const fingerprint = await computeFingerprint(board);
+    return {
+      id: board.id,
+      message: board.message,
+      author: board.author,
+      accent,
+      canonical: canonicalizeBillboard(board),
+      fingerprint,
+      readable: formatFingerprint(fingerprint),
+      seal: generateSealSvg(fingerprint, accent, 96),
+    };
+  })
+);
+
+const description =
+  'Recalculez vous-même l’empreinte SHA-256 de chaque panneau W00-Board, dans votre navigateur ou hors ligne en une commande.';
+---
+
+<Layout title="Vérifier une affiche — W00-Board" description={description}>
+  <main
+    class="verify"
+    style={`--bg: ${theme.backgroundColor}; --text: ${theme.textColor}; --accent: ${theme.accentColor}; --font: ${theme.fontFamily}`}
+  >
+    <div class="verify-inner">
+      <header class="verify-header">
+        <h1>Vérifier une affiche</h1>
+        <p class="verify-lede">
+          Chaque panneau porte une empreinte <strong>SHA-256</strong> calculée au moment de la
+          publication. Cette page la recalcule dans <em>votre</em> navigateur, avec <em>votre</em>
+          moteur cryptographique, à partir du contenu publié.
+        </p>
+        <p class="verify-status" id="verify-status" role="status" aria-live="polite">
+          Vérification en cours…
+        </p>
+      </header>
+
+      <section class="verify-list" aria-label="Panneaux publiés">
+        {entries.map((entry) => (
+          <article class="verify-card" id={entry.id} data-canonical={entry.canonical} data-fingerprint={entry.fingerprint}>
+            {/*
+              SVG synthétisé au build par generateSealSvg() ; seule la couleur
+              provient de la configuration, filtrée par sanitizeSvgColor().
+            */}
+            <div class="verify-seal" style={`--accent: ${entry.accent}`} set:html={entry.seal} />
+
+            <div class="verify-body">
+              <h2 class="verify-message">{entry.message}</h2>
+              <p class="verify-author">— {entry.author}</p>
+
+              <dl class="verify-fields">
+                <dt>Contenu canonique (ce qui est haché)</dt>
+                <dd><code class="verify-canonical">{entry.canonical}</code></dd>
+
+                <dt>Empreinte publiée</dt>
+                <dd><code class="verify-hash">{entry.fingerprint}</code></dd>
+
+                <dt>Empreinte recalculée ici</dt>
+                <dd><code class="verify-hash" data-role="computed">…</code></dd>
+              </dl>
+
+              <p class="verify-verdict" data-role="verdict" data-state="pending">Calcul en cours…</p>
+
+              <p class="verify-links">
+                <a href={`/b/${entry.id}/`}>Voir le panneau</a>
+                <span aria-hidden="true">·</span>
+                <span class="verify-short">Sceau : {entry.readable}</span>
+              </p>
+            </div>
+          </article>
+        ))}
+      </section>
+
+      <section class="verify-manual" aria-labelledby="manual-title">
+        <h2 id="manual-title">Vérifier une empreinte quelconque</h2>
+        <p>
+          Collez une <strong>empreinte</strong> relevée sur une affiche imprimée ou une capture, ou
+          une <strong>chaîne canonique</strong> complète. La page dit si elle correspond à un
+          panneau actuellement publié.
+        </p>
+        <label class="verify-label" for="manual-input">Empreinte ou chaîne canonique</label>
+        <textarea
+          id="manual-input"
+          class="verify-input"
+          rows="3"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder={'8ed23b7e0d5d…  ou  ["paix","LA PAIX SOIT AVEC VOUS",…]'}
+        ></textarea>
+        <p class="verify-result" id="manual-result" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="verify-offline" aria-labelledby="offline-title">
+        <h2 id="offline-title">Vérifier sans nous faire confiance</h2>
+        <p>
+          Cette page est servie par le même site que les affiches : elle vous donne à la fois la
+          question et la réponse. Pour un contrôle réellement indépendant, prenez le contenu à la
+          source et refaites le calcul vous-même :
+        </p>
+        <pre class="verify-code"><code>printf '%s' '["paix","LA PAIX SOIT AVEC VOUS","W00DDY",["Paix","Foi"],"#a78bfa","2026-06-23T16:24:58Z"]' | sha256sum</code></pre>
+        <p>
+          La chaîne canonique se reconstruit à partir de <code>src/data/config.json</code> dans le
+          dépôt public : les six champs <code>id</code>, <code>message</code>, <code>author</code>,
+          <code>tags</code>, <code>accentColor</code>, <code>date</code>, dans cet ordre, sérialisés
+          en tableau JSON — <code>null</code> pour un champ absent. Le manifeste
+          <a href="/build.json">/build.json</a> publie la même paire pour chaque panneau.
+        </p>
+        <p class="verify-caveat">
+          L’empreinte atteste <strong>l’intégrité</strong> d’une version, pas l’identité de son
+          auteur : elle prouve qu’une affiche correspond bien au contenu publié, pas que ce contenu
+          vient de quelqu’un en particulier.
+        </p>
+      </section>
+
+      <p class="verify-back"><a href="/">← Retour au mur</a></p>
+    </div>
+  </main>
+</Layout>
+
+<script>
+  // Aucun import depuis src/utils : le navigateur doit recalculer avec ses
+  // propres primitives, pas avec notre code. Réutiliser posterHash.ts ici
+  // reviendrait à vérifier notre travail avec notre propre règle.
+
+  /** SHA-256 hexadécimal d'une chaîne, via le moteur du navigateur. */
+  async function sha256Hex(input: string): Promise<string> {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  type Verdict = 'match' | 'mismatch' | 'unknown';
+
+  /**
+   * Texte affiché pour un résultat de vérification.
+   *
+   * TODO(contribution) — voir le message d'accompagnement.
+   * Décision ouverte : ce que la page dit, et avec quel niveau d'alarme, dans
+   * chacun des trois cas. Un faux positif rassurant est pire qu'une absence de
+   * vérification ; un faux négatif alarmiste détruit la confiance pour rien.
+   */
+  function verdictMessage(verdict: Verdict): string {
+    if (verdict === 'match') return 'Empreinte vérifiée.';
+    if (verdict === 'mismatch') return 'Les empreintes diffèrent.';
+    return 'Aucune correspondance.';
+  }
+
+  /** Compare deux empreintes hexadécimales complètes, insensible à la casse. */
+  function sameFingerprint(a: string, b: string): boolean {
+    return a.length === 64 && a.toLowerCase() === b.toLowerCase();
+  }
+
+  const cards = Array.from(document.querySelectorAll<HTMLElement>('.verify-card'));
+  const statusEl = document.getElementById('verify-status');
+
+  async function verifyCards(): Promise<void> {
+    let matched = 0;
+
+    for (const card of cards) {
+      const canonical = card.dataset.canonical ?? '';
+      const published = card.dataset.fingerprint ?? '';
+      const computedEl = card.querySelector<HTMLElement>('[data-role="computed"]');
+      const verdictEl = card.querySelector<HTMLElement>('[data-role="verdict"]');
+
+      const computed = await sha256Hex(canonical);
+      const verdict: Verdict = sameFingerprint(computed, published) ? 'match' : 'mismatch';
+      if (verdict === 'match') matched += 1;
+
+      if (computedEl) computedEl.textContent = computed;
+      if (verdictEl) {
+        verdictEl.dataset.state = verdict;
+        verdictEl.textContent = verdictMessage(verdict);
+      }
+    }
+
+    if (statusEl) {
+      statusEl.textContent =
+        matched === cards.length
+          ? `${matched} panneau${matched > 1 ? 'x' : ''} sur ${cards.length} vérifié${matched > 1 ? 's' : ''} dans votre navigateur.`
+          : `Attention : ${cards.length - matched} panneau(x) sur ${cards.length} ne correspondent pas à leur empreinte publiée.`;
+    }
+  }
+
+  const input = document.getElementById('manual-input') as HTMLTextAreaElement | null;
+  const result = document.getElementById('manual-result');
+
+  /** Retrouve le panneau dont l'empreinte publiée vaut `hex`. */
+  function findCard(hex: string): HTMLElement | undefined {
+    return cards.find((card) => sameFingerprint(hex, card.dataset.fingerprint ?? ''));
+  }
+
+  async function checkManualInput(): Promise<void> {
+    if (!input || !result) return;
+
+    const value = input.value.trim();
+    if (!value) {
+      result.textContent = '';
+      result.dataset.state = 'pending';
+      return;
+    }
+
+    // Une empreinte se reconnaît à sa forme ; tout le reste est traité comme une
+    // chaîne canonique à hacher. Pas de bouton « mode » : le format suffit.
+    const isFingerprint = /^[0-9a-f]{64}$/i.test(value);
+    const hex = isFingerprint ? value.toLowerCase() : await sha256Hex(value);
+    const card = findCard(hex);
+
+    if (card) {
+      const title = card.querySelector('.verify-message')?.textContent ?? card.id;
+      result.dataset.state = 'match';
+      result.textContent = `${verdictMessage('match')} Correspond au panneau « ${title} ».`;
+    } else {
+      result.dataset.state = 'unknown';
+      result.textContent = `${verdictMessage('unknown')} Empreinte calculée : ${hex}`;
+    }
+  }
+
+  input?.addEventListener('input', () => {
+    void checkManualInput();
+  });
+
+  void verifyCards();
+
+  // Le lien depuis une affiche pointe vers /verifier/#<id> : on met la carte en
+  // évidence une fois le rendu terminé.
+  if (location.hash) {
+    document.getElementById(location.hash.slice(1))?.classList.add('is-target');
+  }
+</script>
+
+<style>
+  .verify {
+    min-height: 100vh;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    padding: 4rem 1.5rem;
+    box-sizing: border-box;
+  }
+
+  .verify-inner {
+    max-width: 52rem;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2.5rem;
+  }
+
+  .verify-header h1 {
+    font-size: clamp(2rem, 5vw, 3rem);
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    margin: 0 0 0.75rem;
+  }
+
+  .verify-lede {
+    font-size: 1.05rem;
+    line-height: 1.6;
+    color: rgba(248, 250, 252, 0.75);
+    margin: 0 0 0.75rem;
+  }
+
+  .verify-status {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: rgba(248, 250, 252, 0.55);
+    margin: 0;
+  }
+
+  .verify-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .verify-card {
+    display: flex;
+    gap: 1.25rem;
+    align-items: flex-start;
+    padding: 1.25rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.02);
+    scroll-margin-top: 2rem;
+  }
+
+  .verify-card.is-target {
+    border-color: var(--accent);
+  }
+
+  .verify-seal {
+    flex-shrink: 0;
+  }
+
+  .verify-seal :global(svg) {
+    display: block;
+    width: 64px;
+    height: 64px;
+  }
+
+  .verify-body {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .verify-message {
+    font-size: 1.1rem;
+    font-weight: 800;
+    margin: 0;
+    overflow-wrap: break-word;
+  }
+
+  .verify-author {
+    font-size: 0.85rem;
+    color: var(--accent);
+    margin: 0.15rem 0 0.9rem;
+  }
+
+  .verify-fields {
+    margin: 0;
+    display: grid;
+    gap: 0.15rem;
+  }
+
+  /* 0,45 d'alpha sur le fond #0f172a donnait 4,46:1 — sous le seuil AA de
+     4,5:1. L'écart est infime en nombre et invisible à l'œil, mais ce sont
+     des étiquettes en CAPITALES à 0.65rem : la casse et la petite taille
+     dégradent déjà la lisibilité, le contraste ne devrait pas s'y ajouter.
+     0,46 suffit à passer (4,63:1) ; on prend 0,58 pour de la marge. */
+  .verify-fields dt {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(248, 250, 252, 0.58);
+    margin-top: 0.6rem;
+  }
+
+  .verify-fields dd {
+    margin: 0;
+  }
+
+  .verify-canonical,
+  .verify-hash {
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: rgba(248, 250, 252, 0.85);
+    overflow-wrap: anywhere;
+  }
+
+  .verify-verdict {
+    font-size: 0.85rem;
+    font-weight: 700;
+    margin: 0.9rem 0 0;
+  }
+
+  .verify-verdict[data-state='pending'] {
+    color: rgba(248, 250, 252, 0.58);
+  }
+
+  .verify-verdict[data-state='match']::before,
+  .verify-result[data-state='match']::before {
+    content: '✓ ';
+  }
+
+  .verify-verdict[data-state='mismatch']::before,
+  .verify-result[data-state='unknown']::before,
+  .verify-result[data-state='mismatch']::before {
+    content: '✕ ';
+  }
+
+  /* Couleurs choisies pour rester ≥ 4.5:1 sur le fond sombre du thème.
+     Le symbole ✓ / ✕ double l'information : elle ne dépend pas de la couleur. */
+  .verify-verdict[data-state='match'],
+  .verify-result[data-state='match'] {
+    color: #4ade80;
+  }
+
+  .verify-verdict[data-state='mismatch'],
+  .verify-result[data-state='mismatch'],
+  .verify-result[data-state='unknown'] {
+    color: #fca5a5;
+  }
+
+  .verify-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: rgba(248, 250, 252, 0.58);
+    margin: 0.6rem 0 0;
+  }
+
+  .verify-links a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .verify-links a:hover {
+    text-decoration: underline;
+  }
+
+  /* Les liens de cette page n'avaient AUCUN style de focus. Sur un formulaire
+     de vérification, naviguer au clavier sans savoir où l'on est n'est pas un
+     détail : c'est la seule page du site où l'utilisateur compare deux
+     empreintes caractère par caractère. */
+  .verify-links a:focus-visible,
+  .verify-offline a:focus-visible,
+  .verify-back a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  .verify-manual h2,
+  .verify-offline h2 {
+    font-size: 1.25rem;
+    font-weight: 800;
+    margin: 0 0 0.5rem;
+  }
+
+  .verify-manual p,
+  .verify-offline p {
+    font-size: 0.9rem;
+    line-height: 1.65;
+    color: rgba(248, 250, 252, 0.7);
+    margin: 0 0 0.75rem;
+  }
+
+  .verify-label {
+    display: block;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(248, 250, 252, 0.58);
+    margin-bottom: 0.35rem;
+  }
+
+  .verify-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.75rem;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    resize: vertical;
+  }
+
+  .verify-input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .verify-result {
+    min-height: 1.4em;
+    font-size: 0.85rem;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+    margin: 0.6rem 0 0;
+    color: rgba(248, 250, 252, 0.6);
+  }
+
+  .verify-code {
+    padding: 0.85rem;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.25);
+    overflow-x: auto;
+    margin: 0 0 0.75rem;
+  }
+
+  .verify-code code,
+  .verify-offline code {
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 0.75rem;
+    color: rgba(248, 250, 252, 0.85);
+  }
+
+  .verify-offline a {
+    color: var(--accent);
+  }
+
+  .verify-caveat {
+    padding: 0.75rem 1rem;
+    border-left: 2px solid var(--accent);
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 0 8px 8px 0;
+  }
+
+  .verify-back a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+
+  .verify-back a:hover {
+    text-decoration: underline;
+  }
+
+  @media (max-width: 34rem) {
+    .verify-card {
+      flex-direction: column;
+    }
+  }
+</style>

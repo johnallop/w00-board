@@ -1,7 +1,16 @@
 {
   "extends": "astro/tsconfigs/strict",
   "compilerOptions": {
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true
-  }
+  },
+  // Le tsconfig de base d'Astro ne déclare ni `include` ni `exclude` : sans ces
+  // lignes, la vérification ratisse aussi dist/ (sw.js et les hoisted.*.js
+  // générés). En local dist/ existe, sur un checkout CI avant le build non — le
+  // même `npm run check` n'examinerait pas le même corpus selon l'endroit.
+  //
+  // `node_modules` doit être répété : déclarer `exclude` REMPLACE la valeur par
+  // défaut de TypeScript au lieu de s'y ajouter. L'omettre ferait analyser
+  // l'intégralité des dépendances.
+  "exclude": ["node_modules", "dist"]
 }
