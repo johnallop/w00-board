@@ -92,7 +92,8 @@ src/
 │   ├── llms.txt.ts                 # Résumé markdown pour les IA
 │   ├── llms-full.txt.ts            # Contexte complet pour les IA
 │   ├── sitemap.xml.ts              # Sitemap
-│   └── og-image.png.ts             # Image OG 1200×630 (pré-rendue au build)
+│   ├── og-image.png.ts             # Image OG 1200×630 (pré-rendue au build)
+│   └── sw.js.ts                    # Service Worker, généré au build (offline + précache)
 └── tests/
     ├── alignment.test.ts
     ├── ogTemplate.test.ts
@@ -101,8 +102,8 @@ scripts/
 ├── post-bluesky.mjs                # Publication Bluesky (AT Protocol)
 └── post-nostr.mjs                  # Publication Nostr
 public/
-├── sw.js                           # Service Worker (offline + stale-while-revalidate)
-├── _headers                        # En-têtes de sécurité Cloudflare Pages (CSP…)
+├── _headers                        # En-têtes Cloudflare Pages (CSP, Cache-Control)
+├── manifest.webmanifest            # Manifeste PWA
 └── robots.txt
 .github/workflows/
 ├── deploy.yml                      # Tests + build + vérification des artefacts
@@ -116,7 +117,11 @@ Le site est **100 % statique** (`output: 'static'`). Cloudflare Pages surveille 
 
 Les en-têtes de sécurité (CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy) sont définis dans `public/_headers`.
 
-> ⚠️ La CSP existe en **deux** endroits qui doivent rester synchronisés : la balise `<meta>` dans `src/layouts/Layout.astro` et `public/_headers`. Toute modification doit toucher les deux.
+> ⚠️ La CSP existe en **deux** endroits qui doivent rester synchronisés : la balise `<meta>` dans `src/layouts/Layout.astro` et `public/_headers`. Toute modification doit toucher les deux — `src/tests/headers.test.ts` compare les deux à chaque exécution et échoue si elles divergent.
+
+Pourquoi c'est testé plutôt que recommandé : les politiques CSP sont **intersectives**. Quand plusieurs s'appliquent, le navigateur exige de satisfaire *toutes*. Une divergence n'ouvre donc jamais une faille — elle **casse la page**, en bloquant une source qu'un seul des deux fichiers autorise. Et elle la casse de façon invisible en local, puisque `astro dev` et `astro preview` ne servent pas `public/_headers` : seul Cloudflare Pages le fait. Le premier témoin serait un visiteur devant une page morte.
+
+Une exception assumée : `frame-ancestors` ne figure que dans `public/_headers`. La spécification l'**ignore** dans un `<meta>` ; l'y recopier « pour aligner les deux fichiers » donnerait une symétrie visuelle et zéro protection. Le test exige donc l'égalité *modulo* les directives qu'une balise ne peut pas porter.
 
 ## Diffusion multi-protocoles
 
@@ -189,7 +194,9 @@ Documentation réseau (exigée par `AGENTS.md`) :
 
 ## Mode hors-ligne
 
-Le Service Worker (`public/sw.js`) met en cache la page d'accueil au premier chargement. Les visites suivantes utilisent la stratégie **stale-while-revalidate** : réponse instantanée depuis le cache avec mise à jour silencieuse en arrière-plan.
+Le Service Worker est **généré au build** par la route `src/pages/sw.js.ts` et servi à la racine (`/sw.js`). À l'installation il précharge la liste d'assets produite par le build (`/precache-assets.json`) ; les visites suivantes utilisent la stratégie **stale-while-revalidate** : réponse instantanée depuis le cache avec mise à jour silencieuse en arrière-plan.
+
+> ⚠️ Ne jamais recréer `public/sw.js` : `public/` est recopié verbatim et le fichier masquerait la route, qui redeviendrait muette. `src/tests/serviceWorker.test.ts` interdit son retour.
 
 ## Tests
 
@@ -198,4 +205,13 @@ npm test            # Exécution unique
 npm run test:watch  # Mode watch
 ```
 
-Les tests couvrent les utilitaires `alignment`, `validateConfig` et `ogTemplate` (dont les cas extrêmes exigés par la charte : message long, emoji, accents, RTL, CJK).
+Les tests couvrent les utilitaires purs (`alignment`, `validateConfig`, `ogTemplate`, dont les cas extrêmes exigés par la charte : message long, emoji, accents, RTL, CJK), la conformité des flux, le Service Worker, et les **invariants que la prose ne peut pas garantir** : jumelage des deux CSP, exactitude de l'arborescence ci-dessus, transit des secrets par `env:` dans les workflows.
+
+Certains tests confrontent le code à `dist/`. Ils s'ignorent proprement quand le build est absent (`npm test` seul) et deviennent obligatoires quand on l'exige :
+
+```bash
+npm run build
+W00_REQUIRE_DIST=1 npm run test:dist   # échoue si dist/ manque, au lieu de sauter
+```
+
+C'est le mode utilisé par `deploy.yml` après le build. Sans le drapeau, un `dist/` absent rendrait ces tests verts par omission — le pire des résultats, puisqu'il rassure.

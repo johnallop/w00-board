@@ -4,3 +4,23 @@
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# La CSP ci-dessus est jumelle de celle du <meta> de src/layouts/Layout.astro,
+# à `frame-ancestors` près — la spec CSP ignore cette directive dans un <meta>,
+# donc seul cet en-tête peut la porter. src/tests/headers.test.ts compare les
+# deux à chaque exécution : la consigne du README n'est plus de la bonne volonté.
+
+# Les deux fichiers qui pilotent le cache ne doivent jamais être servis depuis
+# un cache. C'est de la défense en profondeur, pas la correction d'un défaut :
+# le navigateur contourne déjà le cache HTTP pour le script de tête d'un service
+# worker (updateViaCache vaut « imports » par défaut) et le worker demande déjà
+# le manifeste avec cache: 'no-store'. Ces règles couvrent ce qu'aucun des deux
+# ne contrôle : les intermédiaires entre le navigateur et l'origine.
+#
+# no-cache et non no-store : le stockage reste permis, la revalidation devient
+# obligatoire. On garde le 304 sans jamais servir de périmé.
+/sw.js
+  Cache-Control: no-cache
+
+/precache-assets.json
+  Cache-Control: no-cache
