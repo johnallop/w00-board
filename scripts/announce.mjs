@@ -6,9 +6,75 @@
  */
 
 import fs from 'fs';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { diffBillboards } from './lib/diff-billboards.mjs';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Signale une anomalie ailleurs que dans le corps des logs.
+ *
+ * Les pings de découverte tournent sous `continue-on-error: true` : un
+ * `console.warn` y est enterré au milieu de plusieurs centaines de lignes, dans
+ * un job que personne n'ouvre puisqu'il est vert par construction. C'est ainsi
+ * que la clé IndexNow a pu être invalide sans que rien ne le signale.
+ *
+ * `::warning::` remonte l'anomalie dans le résumé de l'exécution, en tête de
+ * page, sans faire échouer quoi que ce soit — ce qui reste le bon compromis
+ * pour un canal dont l'indisponibilité ne doit pas bloquer un déploiement.
+ */
+function avertir(message) {
+  const ligne = String(message).replace(/\r?\n/g, ' ');
+  console.warn(`⚠️ ${ligne}`);
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    console.log(`::warning title=Ping de découverte::${ligne}`);
+  }
+}
+
+/**
+ * La clé IndexNow, lue depuis le nom du fichier qui la publie.
+ *
+ * POURQUOI ELLE N'EST PLUS ÉCRITE ICI.
+ *
+ * Elle l'était, et sa jumelle vivait dans `public/<clé>.txt`. Les deux étaient
+ * d'accord — sur une valeur que le protocole refuse :
+ * `e7a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5` contient `g h i j k l m n o`, alors
+ * qu'IndexNow exige une clé strictement hexadécimale. Le canal d'indexation le
+ * plus rapide du pipeline était donc rejeté à chaque appel depuis sa mise en
+ * place, et le seul témoin était un `console.warn` dans un job en
+ * `continue-on-error`.
+ *
+ * Deux copies d'un même fait ne peuvent pas se contredire, mais elles peuvent
+ * se tromper ensemble. Dériver la clé du nom de fichier supprime la copie ; les
+ * contrôles ci-dessous suppriment l'erreur commune, et src/tests/indexNow.test.ts
+ * les rejoue sans réseau.
+ */
+function cleIndexNow() {
+  // Relatif au script, jamais au cwd : `node scripts/announce.mjs` est lancé
+  // depuis la racine aujourd'hui, ce qui n'est pas une garantie.
+  const dossier = fileURLToPath(new URL('../public/', import.meta.url));
+  const candidats = fs.readdirSync(dossier).filter((nom) => /^[0-9a-f]{8,128}\.txt$/.test(nom));
+
+  if (candidats.length !== 1) {
+    throw new Error(
+      `public/ contient ${candidats.length} fichier(s) de clé IndexNow, il en faut exactement 1 ` +
+        '(nommé « <clé hexadécimale de 8 à 128 caractères>.txt »).'
+    );
+  }
+
+  const cle = candidats[0].slice(0, -'.txt'.length);
+  const contenu = fs.readFileSync(join(dossier, candidats[0]), 'utf8').trim();
+
+  if (contenu !== cle) {
+    throw new Error(
+      `public/${candidats[0]} doit contenir exactement « ${cle} » (lu : « ${contenu} »). ` +
+        'IndexNow récupère ce fichier et compare son contenu à la clé soumise.'
+    );
+  }
+
+  return cle;
+}
 
 async function main() {
   const args = process.argv.slice(2);
@@ -117,7 +183,7 @@ async function main() {
 
   // 4. IndexNow Ping
   try {
-    const key = 'e7a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5';
+    const key = cleIndexNow();
     console.log('IndexNow : Soumission des URLs...');
     
     const res = await fetch('https://api.indexnow.org/indexnow', {
@@ -137,10 +203,10 @@ async function main() {
       console.log('✓ IndexNow soumission réussie');
     } else {
       const errText = await res.text();
-      console.warn(`⚠️ IndexNow a retourné HTTP ${res.status} : ${errText}`);
+      avertir(`IndexNow a retourné HTTP ${res.status} : ${errText}`);
     }
   } catch (err) {
-    console.error('❌ Échec soumission IndexNow :', err.message);
+    avertir(`Échec soumission IndexNow : ${err.message}`);
   }
 
   // 5. Wayback Machine Save
