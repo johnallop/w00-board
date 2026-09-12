@@ -6,7 +6,38 @@
  */
 
 import { finalizeEvent, Relay } from 'nostr-tools';
-import { hexToBytes } from '@noble/hashes/utils';
+
+/**
+ * Convertit une clé hexadécimale en octets.
+ *
+ * REMPLACE `hexToBytes` DE `@noble/hashes/utils`, qui était importé sans figurer
+ * dans package.json : le paquet n'arrivait ici que par transitivité de
+ * `nostr-tools`. Une montée de version qui change de bibliothèque de hachage, ou
+ * un gestionnaire à isolation stricte (pnpm, Yarn PnP), faisait disparaître le
+ * canal Nostr — en pointant un module que personne n'avait jamais déclaré.
+ *
+ * Déclarer la dépendance aurait aussi fermé le trou. Six lignes sans dépendance
+ * coûtent moins à maintenir qu'une dépendance de plus pour une conversion, et
+ * c'est l'ordre de préférence qu'impose AGENTS.md.
+ *
+ * La validation n'est pas décorative : `finalizeEvent` recevait auparavant tout
+ * ce que la variable d'environnement contenait. Une clé tronquée produisait une
+ * signature invalide, acceptée par le script et rejetée par les relais — donc un
+ * échec dont le message ne nommait pas la cause.
+ *
+ * @param {string} hex
+ * @returns {Uint8Array}
+ */
+function hexEnOctets(hex) {
+  const nettoye = String(hex).trim().toLowerCase();
+  if (!/^([0-9a-f]{2})+$/.test(nettoye)) {
+    throw new Error(
+      'NOSTR_PRIVATE_KEY doit être une chaîne hexadécimale de longueur paire ' +
+        `(reçu : ${nettoye.length} caractère(s)).`
+    );
+  }
+  return Uint8Array.from(nettoye.match(/.{2}/g), (octet) => parseInt(octet, 16));
+}
 
 /**
  * @param {object} params
@@ -54,7 +85,7 @@ export async function post({ message, author, hashtags, url }) {
       tags: tags,
       content: content,
     },
-    hexToBytes(NOSTR_PRIVATE_KEY)
+    hexEnOctets(NOSTR_PRIVATE_KEY)
   );
 
   let published = 0;
