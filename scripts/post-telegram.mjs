@@ -42,6 +42,8 @@ export async function post({ message, author, hashtags, url }) {
       parse_mode: 'HTML',
       disable_web_page_preview: false,
     }),
+    // Sans délai, un appel bloqué consommait toute la durée du job.
+    signal: AbortSignal.timeout(15_000),
   });
 
   if (!response.ok) {

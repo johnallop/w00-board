@@ -124,3 +124,118 @@ export function verdictDiffusion(resultats) {
   }
   return { code: 0, resume };
 }
+
+/**
+ * Attend que le site serve les panneaux à diffuser, en lisant `/build.json`.
+ *
+ * Ce que ça corrige : broadcast.yml se déclenche au push, en parallèle de
+ * Cloudflare Pages qui construit le même commit. Un panneau AJOUTÉ était donc
+ * annoncé sur huit réseaux avec un lien encore en 404, et un panneau MODIFIÉ
+ * avec l'ancienne image d'aperçu — que les plateformes mettent ensuite en
+ * cache.
+ *
+ * POURQUOI LE CONTENU ET NON LE COMMIT. La première version attendait que
+ * `build.json` porte exactement GITHUB_SHA. Deux pushs rapprochés suffisaient
+ * à la bloquer : Cloudflare publie le second, le commit attendu n'apparaît
+ * jamais, la diffusion du premier expire et s'annule — alors que son panneau
+ * était bel et bien en ligne. La question réelle n'est pas « quel commit est
+ * déployé ? » mais « ce que j'annonce est-il servi tel quel ? ». `build.json`
+ * publie la forme canonique de chaque panneau (canonicalizeBillboard) : on
+ * exige que chaque panneau à diffuser y figure à l'identique. Un déploiement
+ * plus récent qui l'a laissé intact débloque la diffusion ; un déploiement qui
+ * l'a modifié entre-temps ne la débloque pas — c'est alors le push suivant,
+ * avec son propre diff, qui annonce la version à jour.
+ *
+ * Dépendances injectées (fetch, sleep, horloge) : la fonction se teste sans
+ * réseau ni attente réelle.
+ *
+ * @param {object} o
+ * @param {string} o.siteUrl
+ * @param {string[]} o.canoniques — forme canonique de chaque panneau à diffuser
+ * @param {typeof fetch} [o.fetch]
+ * @param {(ms: number) => Promise<void>} [o.sleep]
+ * @param {() => number} [o.maintenant]
+ * @param {number} [o.delaiMax] — ms, défaut 10 min
+ * @param {number} [o.intervalle] — ms, défaut 15 s
+ * @param {(ligne: string) => void} [o.journal]
+ * @returns {Promise<{enLigne: boolean, vu: string | null, manquants: string[]}>}
+ *   `vu` : commit annoncé par le site (journal) ; `manquants` : canoniques absents
+ */
+export async function attendreDeploiement({
+  siteUrl,
+  canoniques,
+  fetch: recuperer = globalThis.fetch,
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  maintenant = Date.now,
+  delaiMax = 10 * 60 * 1000,
+  intervalle = 15 * 1000,
+  journal = () => {},
+}) {
+  const debut = maintenant();
+  let vu = null;
+  let manquants = [...canoniques];
+  for (;;) {
+    try {
+      const reponse = await recuperer(`${siteUrl}/build.json`, {
+        cache: 'no-store',
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (reponse.ok) {
+        const donnees = await reponse.json();
+        vu = typeof donnees?.commit === 'string' ? donnees.commit : null;
+        const servis = new Set(
+          (Array.isArray(donnees?.fingerprints?.billboards) ? donnees.fingerprints.billboards : [])
+            .map((b) => b?.canonical)
+            .filter((c) => typeof c === 'string')
+        );
+        manquants = canoniques.filter((c) => !servis.has(c));
+        if (manquants.length === 0) return { enLigne: true, vu, manquants };
+        journal(`déployé : ${vu ?? 'inconnu'} | ${manquants.length} panneau(x) pas encore servi(s) à l'identique`);
+      } else {
+        journal(`build.json répond ${reponse.status}`);
+      }
+    } catch (err) {
+      journal(`build.json injoignable : ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (maintenant() - debut + intervalle > delaiMax) return { enLigne: false, vu, manquants };
+    await sleep(intervalle);
+  }
+}
+
+/**
+ * Clé d'idempotence d'une publication.
+ *
+ * Un « Re-run » GitHub garde le même GITHUB_RUN_ID (seul GITHUB_RUN_ATTEMPT
+ * change) : la clé est donc identique d'une tentative à l'autre, et les canaux
+ * qui savent dédoublonner (Mastodon via Idempotency-Key, gardée 1 h ; Matrix
+ * via l'identifiant de transaction) ignorent la seconde. Un nouveau
+ * déclenchement a un autre run id, donc une autre clé : rien n'est bloqué à
+ * tort.
+ *
+ * @param {{id: string}} board
+ * @param {string | undefined} runId
+ * @param {boolean} repost
+ * @returns {string}
+ */
+export function cleIdempotence(board, runId, repost) {
+  return `w00-${board.id}-${repost ? 'repost' : 'post'}-${runId || 'local'}`;
+}
+
+/**
+ * Restreint la diffusion aux canaux nommés, pour rejouer seulement ceux qui
+ * ont échoué au lieu de republier partout (variable CANAUX, ex. « nostr,matrix »).
+ * Vide ou absent : tous les canaux.
+ *
+ * @param {string[]} disponibles
+ * @param {string | undefined} valeur
+ * @returns {string[]}
+ */
+export function filtrerCanaux(disponibles, valeur) {
+  if (!valeur || valeur.trim() === '') return [...disponibles];
+  const demandes = valeur.split(',').map((c) => c.trim().toLowerCase()).filter(Boolean);
+  const inconnus = demandes.filter((c) => !disponibles.includes(c));
+  if (inconnus.length > 0) {
+    throw new Error(`CANAUX : canal inconnu « ${inconnus.join(', ')} » — attendus : ${disponibles.join(', ')}`);
+  }
+  return disponibles.filter((c) => demandes.includes(c));
+}

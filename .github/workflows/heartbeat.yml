@@ -5,34 +5,57 @@ on:
     - cron: '17 9 * * 1' # Tous les lundis à 09:17 UTC
   workflow_dispatch:
 
+# Lecture seule : le job lit la branche ipfs-history, il n'écrit rien.
+permissions:
+  contents: read
+
 jobs:
   heartbeat:
     runs-on: ubuntu-latest
-    env:
-      MASTODON_TOKEN: ${{ secrets.MASTODON_TOKEN }}
-      MASTODON_INSTANCE: ${{ secrets.MASTODON_INSTANCE }}
-      BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
-      BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
-      NOSTR_PRIVATE_KEY: ${{ secrets.NOSTR_PRIVATE_KEY }}
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-      W3NAME_KEY: ${{ secrets.W3NAME_KEY }}
-      SITE_URL: ${{ secrets.SITE_URL || 'https://board.wooddyviat.com' }}
+    timeout-minutes: 20
+    # Même groupe que le job `ipfs` de deploy.yml : deux publications IPNS
+    # simultanées lisaient la même séquence et publiaient chacune N+1.
+    # cancel-in-progress à false : on met en file, on n'interrompt jamais une
+    # publication en cours.
+    concurrency:
+      group: ipfs-mirror
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
 
+      # Node 22 au minimum pour le `WebSocket` global dont dépend nostr-tools :
+      # voir la note dans broadcast.yml (heartbeat rouge du 12/10 au 09/11/2026).
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Installer les dépendances
         id: install
         run: npm ci
 
+      # Secrets sur l'étape qui les lit, pas sur le job : `npm ci` (et les
+      # scripts d'installation des dépendances) n'a pas à les voir.
       - name: Lancer le repost hebdomadaire
+        env:
+          SITE_URL: ${{ secrets.SITE_URL || 'https://board.wooddyviat.com' }}
+          MASTODON_TOKEN: ${{ secrets.MASTODON_TOKEN }}
+          MASTODON_INSTANCE: ${{ secrets.MASTODON_INSTANCE }}
+          BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+          BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
+          NOSTR_PRIVATE_KEY: ${{ secrets.NOSTR_PRIVATE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MATRIX_HOMESERVER: ${{ secrets.MATRIX_HOMESERVER }}
+          MATRIX_ACCESS_TOKEN: ${{ secrets.MATRIX_ACCESS_TOKEN }}
+          MATRIX_ROOM_ID: ${{ secrets.MATRIX_ROOM_ID }}
+          MISSKEY_INSTANCE: ${{ secrets.MISSKEY_INSTANCE }}
+          MISSKEY_TOKEN: ${{ secrets.MISSKEY_TOKEN }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_SERVER: ${{ secrets.NTFY_SERVER }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
         run: node scripts/broadcast.mjs --heartbeat
 
       # Le heartbeat ne calcule PLUS de CID.
@@ -75,6 +98,8 @@ jobs:
       - name: Rafraîchir l'IPNS (w3name)
         id: ipns
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          W3NAME_KEY: ${{ secrets.W3NAME_KEY }}
         run: |
           if [ -z "$W3NAME_KEY" ]; then
             echo "verified=skipped" >> $GITHUB_OUTPUT

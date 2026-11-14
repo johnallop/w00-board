@@ -7,6 +7,16 @@
 
 import { finalizeEvent, Relay } from 'nostr-tools';
 
+/** Rejette si la promesse ne s'est pas réglée dans le délai ; le minuteur ne retient pas Node. */
+function avecDelai(promesse, ms, quoi) {
+  let minuteur;
+  const delai = new Promise((_, rejeter) => {
+    minuteur = setTimeout(() => rejeter(new Error(`délai dépassé (${ms} ms) : ${quoi}`)), ms);
+    minuteur.unref?.();
+  });
+  return Promise.race([promesse, delai]).finally(() => clearTimeout(minuteur));
+}
+
 /**
  * Convertit une clé hexadécimale en octets.
  *
@@ -92,14 +102,30 @@ export async function post({ message, author, hashtags, url }) {
 
   await Promise.allSettled(
     RELAYS.map(async (relayUrl) => {
+      /*
+       * `Relay.connect` n'applique aucun délai (nostr-tools 2.23.7 appelle
+       * `relay.connect()` sans options), et `close()` n'était appelé qu'en cas
+       * de succès : un relais qui accepte la connexion puis refuse ou ignore la
+       * publication laissait un socket ouvert, de quoi empêcher Node de rendre
+       * la main. Délai sur chaque étape, et fermeture garantie — y compris
+       * d'une connexion qui aboutirait APRÈS l'abandon.
+       */
+      let relay;
+      let abandonne = false;
+      const connexion = Relay.connect(relayUrl).then((r) => {
+        if (abandonne) r.close();
+        return r;
+      });
       try {
-        const relay = await Relay.connect(relayUrl);
-        await relay.publish(event);
-        relay.close();
+        relay = await avecDelai(connexion, 10_000, `connexion à ${relayUrl}`);
+        await avecDelai(relay.publish(event), 10_000, `publication sur ${relayUrl}`);
         published++;
         console.log(`✓ Publié sur ${relayUrl}`);
       } catch (err) {
         console.warn(`✗ Échec ${relayUrl} :`, err.message);
+      } finally {
+        abandonne = true;
+        relay?.close();
       }
     })
   );
