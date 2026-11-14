@@ -1,4 +1,5 @@
 import type { BillboardConfig } from '../types/config';
+import { RESEAUX_SOCIAUX, MAX_PROFILS_SOCIAUX, MAX_LIBELLE_PROFIL, estReseauSocial } from './social';
 
 const VALID_H = ['left', 'center', 'right'] as const;
 const VALID_V = ['top', 'center', 'bottom'] as const;
@@ -101,6 +102,16 @@ function getRelativeLuminance(rgb: Rgba): number {
   return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
 }
 
+/** Teinte des textes secondaires écrite en dur dans les pages, et son opacité la plus faible. */
+const TEINTE_SECONDAIRE: Rgba = { r: 248, g: 250, b: 252, a: 255 };
+const ALPHA_SECONDAIRE_MIN = 0.5;
+
+/** Couleur perçue d'une teinte d'opacité `alpha` posée sur un fond opaque. */
+function composerSurFond(teinte: Rgba, alpha: number, fond: Rgba): Rgba {
+  const canal = (t: number, f: number) => alpha * t + (1 - alpha) * f;
+  return { r: canal(teinte.r, fond.r), g: canal(teinte.g, fond.g), b: canal(teinte.b, fond.b), a: 255 };
+}
+
 /** Ratio WCAG 2.2 entre deux couleurs déjà validées comme mesurables. */
 function getContrastRatio(color1: Rgba, color2: Rgba): number {
   const l1 = getRelativeLuminance(color1);
@@ -171,6 +182,24 @@ export function validateConfig(config: unknown): asserts config is BillboardConf
     throw new Error(`config.json : "theme.textColor" (${textColorValue}) a un contraste insuffisant de ${textRatio.toFixed(2)}:1 avec la couleur de fond (${bg}), le minimum WCAG 2.2 AA est de 4.5:1`);
   }
 
+  /*
+   * Les textes secondaires des pages (date, légendes, compteurs, tags) ne
+   * suivent pas `theme.textColor` : ils sont écrits en blanc translucide,
+   * l'opacité la plus faible étant 0,5 (.poster-date, .qrcode-legend de
+   * b/[id].astro ; tags et compteurs du mur et de /live). Ils supposent donc
+   * un fond sombre. Sans ce contrôle, un
+   * thème clair (#ffffff / #000000) passait la validation et rendait ces
+   * textes blanc sur blanc. On mesure l'hypothèse elle-même : la teinte
+   * composée sur le fond configuré doit atteindre 4,5:1.
+   */
+  const secondaire = composerSurFond(TEINTE_SECONDAIRE, ALPHA_SECONDAIRE_MIN, bgRgb);
+  const secondaireRatio = getContrastRatio(secondaire, bgRgb);
+  if (secondaireRatio < 4.5) {
+    throw new Error(
+      `config.json : "theme.backgroundColor" (${bg}) est trop clair pour les textes secondaires des pages, écrits en blanc à ${ALPHA_SECONDAIRE_MIN * 100} % d'opacité : ${secondaireRatio.toFixed(2)}:1, le minimum WCAG 2.2 AA est de 4.5:1. Le site suppose un fond sombre ; un thème clair demanderait de dériver ces teintes de theme.textColor dans les pages.`
+    );
+  }
+
   const accentRatio = getContrastRatio(accentRgb, bgRgb);
   if (accentRatio < 4.5) {
     throw new Error(`config.json : "theme.accentColor" (${accentColorValue}) a un contraste insuffisant de ${accentRatio.toFixed(2)}:1 avec la couleur de fond (${bg}), le minimum WCAG 2.2 AA est de 4.5:1`);
@@ -234,4 +263,56 @@ export function validateConfig(config: unknown): asserts config is BillboardConf
   if (!VALID_V.includes(layout.verticalAlignment as (typeof VALID_V)[number])) {
     throw new Error(`config.json : "layout.verticalAlignment" doit être parmi : ${VALID_V.join(', ')}`);
   }
+
+  validerProfilsSociaux(c.social);
+}
+
+/*
+ * `social[]` est optionnel : une config sans comptes reste valide, et le pied
+ * de page n'affiche alors rien de plus. Chaque URL finit dans un `href` et
+ * dans le JSON-LD `sameAs` : seul `https:` est admis — ni `javascript:`, ni
+ * `data:`, ni `http:` qu'un navigateur signalerait comme non sûr.
+ */
+function validerProfilsSociaux(social: unknown): void {
+  if (social === undefined) return;
+  if (!Array.isArray(social)) {
+    throw new Error('config.json : "social" doit être un tableau de profils { network, url, label? }');
+  }
+  if (social.length > MAX_PROFILS_SOCIAUX) {
+    throw new Error(`config.json : "social" contient ${social.length} profils, ${MAX_PROFILS_SOCIAUX} au plus`);
+  }
+  const urlsVues = new Set<string>();
+  social.forEach((profil: unknown, i: number) => {
+    const chemin = `social[${i}]`;
+    if (typeof profil !== 'object' || profil === null || Array.isArray(profil)) {
+      throw new Error(`config.json : "${chemin}" doit être un objet { network, url, label? }`);
+    }
+    const p = profil as Record<string, unknown>;
+    if (!estReseauSocial(p.network)) {
+      throw new Error(
+        `config.json : "${chemin}.network" (${JSON.stringify(p.network)}) doit être parmi : ${RESEAUX_SOCIAUX.join(', ')}`
+      );
+    }
+    if (typeof p.url !== 'string') {
+      throw new Error(`config.json : "${chemin}.url" doit être une URL https (reçu ${JSON.stringify(p.url)})`);
+    }
+    let url: URL;
+    try {
+      url = new URL(p.url);
+    } catch {
+      throw new Error(`config.json : "${chemin}.url" (${p.url}) n'est pas une URL absolue valide`);
+    }
+    if (url.protocol !== 'https:') {
+      throw new Error(`config.json : "${chemin}.url" (${p.url}) doit commencer par https:// — protocole « ${url.protocol} » refusé`);
+    }
+    if (urlsVues.has(url.href)) {
+      throw new Error(`config.json : "${chemin}.url" (${p.url}) apparaît deux fois dans "social"`);
+    }
+    urlsVues.add(url.href);
+    if (p.label !== undefined) {
+      if (typeof p.label !== 'string' || p.label.trim() === '' || [...p.label].length > MAX_LIBELLE_PROFIL) {
+        throw new Error(`config.json : "${chemin}.label" doit être un texte non vide de ${MAX_LIBELLE_PROFIL} caractères au plus`);
+      }
+    }
+  });
 }

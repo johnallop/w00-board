@@ -26,7 +26,6 @@
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
     "@atproto/api": "^0.20.18",
-    "@types/qrcode-generator": "^0.0.16",
     "ipfs-car": "^3.1.0",
     "nostr-tools": "^2.23.7",
     "typescript": "^5.5.4",

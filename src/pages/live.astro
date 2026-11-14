@@ -91,10 +91,25 @@ export const prerender = true;
     <!-- Contrôles et UI de progression -->
     <div class="live-ui">
       <!-- Indicateur textuel accessible -->
-      <div class="status-indicator" aria-live="polite">
+      <!-- aria-live « off » pendant la rotation automatique, « polite » à
+           l'arrêt (motif carrousel WAI-ARIA) : sinon le lecteur d'écran annonce
+           « Panneau 2 / 2 » toutes les 8 s, sans fin. Le script bascule la
+           valeur ; sans JS, rien ne tourne et l'indicateur reste muet. -->
+      <div class="status-indicator" id="status-indicator" aria-live="off">
         Panneau <span id="current-index-txt">1</span> / {billboards.length}
         <span id="paused-txt" class="paused-badge" hidden> (En pause)</span>
       </div>
+
+      <!-- Précédent / suivant : visibles dans TOUS les modes. Avec
+           prefers-reduced-motion, la rotation est coupée et le bouton de
+           lecture masqué ; seules les flèches du clavier changeaient alors de
+           panneau, sans que rien ne l'indique — souris et tactile restaient
+           bloqués sur le premier. -->
+      <button id="prev-btn" class="ui-btn" type="button" aria-label="Panneau précédent" aria-controls="live-container">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+          <path d="M15.4 7.4 14 6l-6 6 6 6 1.4-1.4L10.8 12z"/>
+        </svg>
+      </button>
 
       <!-- Bouton d'action pour le contrôle au clavier/clic -->
       <button id="play-pause-btn" class="ui-btn" type="button" aria-label="Mettre en pause le diaporama">
@@ -103,6 +118,12 @@ export const prerender = true;
         </svg>
         <svg id="play-icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" {...{ hidden: true }}>
           <path d="M8 5v14l11-7z"/>
+        </svg>
+      </button>
+
+      <button id="next-btn" class="ui-btn" type="button" aria-label="Panneau suivant" aria-controls="live-container">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+          <path d="M8.6 16.6 10 18l6-6-6-6-1.4 1.4 4.6 4.6z"/>
         </svg>
       </button>
 
@@ -147,8 +168,11 @@ export const prerender = true;
     const params = new URLSearchParams(window.location.search);
     
     // 1. Paramètres d'URL (dwell et board)
+    // Borné à [3 s, 1 h] : `?dwell=0` ou une valeur négative passaient le test
+    // NaN et donnaient setTimeout(…, 0) — rotation en boucle continue, fondus
+    // permanents, processeur occupé. Sous 3 s le panneau n'est plus lisible.
     const dwellSeconds = parseFloat(params.get('dwell') || '8');
-    const dwellTime = (isNaN(dwellSeconds) ? 8 : dwellSeconds) * 1000;
+    const dwellTime = Math.min(3600, Math.max(3, isNaN(dwellSeconds) ? 8 : dwellSeconds)) * 1000;
     container.style.setProperty('--dwell-time', `${dwellTime}ms`);
 
     const initialBoardId = params.get('board');
@@ -170,6 +194,8 @@ export const prerender = true;
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (prefersReducedMotion) {
       isPlaying = false;
+      // Pas de rotation : chaque changement vient du visiteur, on l'annonce.
+      document.getElementById('status-indicator')?.setAttribute('aria-live', 'polite');
       if (progressBar) progressBar.style.display = 'none';
       if (playPauseBtn) playPauseBtn.style.display = 'none';
     }
@@ -203,6 +229,21 @@ export const prerender = true;
         slideStartTime = Date.now();
         remainingTime = dwellTime;
         startTimer(dwellTime);
+      } else if (!prefersReducedMotion) {
+        /*
+         * Navigation pendant la pause : le nouveau panneau repart de zéro.
+         * Avant, ni le temps restant ni la barre n'étaient réinitialisés — à
+         * la reprise, il héritait du reliquat du panneau précédent et la barre
+         * repartait de sa position figée.
+         */
+        remainingTime = dwellTime;
+        if (progressBar) {
+          progressBar.classList.remove('animating');
+          void progressBar.offsetWidth;
+          progressBar.classList.add('animating');
+          progressBar.style.animationDuration = `${dwellTime}ms`;
+          progressBar.style.animationPlayState = 'paused';
+        }
       }
     }
 
@@ -236,6 +277,7 @@ export const prerender = true;
       isPlaying = !isPlaying;
       container?.classList.toggle('paused', !isPlaying);
       pausedTxt?.toggleAttribute('hidden', isPlaying);
+      document.getElementById('status-indicator')?.setAttribute('aria-live', isPlaying ? 'off' : 'polite');
 
       if (playIcon) playIcon.toggleAttribute('hidden', isPlaying);
       if (pauseIcon) pauseIcon.toggleAttribute('hidden', !isPlaying);
@@ -271,6 +313,17 @@ export const prerender = true;
     playPauseBtn?.addEventListener('click', (e) => {
       e.stopPropagation();
       togglePlayPause();
+    });
+
+    document.getElementById('prev-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearTimer();
+      prevSlide();
+    });
+    document.getElementById('next-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearTimer();
+      nextSlide();
     });
 
     // Contrôles clavier
@@ -541,6 +594,13 @@ export const prerender = true;
     align-items: center;
     justify-content: center;
     transition: all 0.2s ease;
+  }
+
+  /* La feuille du navigateur ne masque [hidden] que sur les éléments HTML :
+     sur un <svg>, l'attribut restait sans effet et le bouton montrait les
+     deux icônes, pause ET lecture (constaté en production le 2026-11-14). */
+  .ui-btn svg[hidden] {
+    display: none;
   }
 
   .ui-btn-link {

@@ -28,10 +28,11 @@ export const GET: APIRoute = async ({ props }) => {
       },
     });
   } catch (error) {
-    console.error(`Erreur lors de la génération de /og/${board.id}.png :`, error);
-    return new Response(JSON.stringify({ error: 'Failed to generate image' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    // On relance au lieu de répondre 500 : une route pré-rendue écrit le corps
+    // de la réponse tel quel, sans regarder son statut (astro 4.16,
+    // core/build/generate.js). Le JSON d'erreur partait donc en production sous
+    // le nom /og/<id>.png, avec un build vert. Une exception, elle, fait
+    // échouer le build — c'est le seul signal que Cloudflare Pages remonte.
+    throw new Error(`Génération de /og/${board.id}.png impossible`, { cause: error });
   }
 };

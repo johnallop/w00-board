@@ -6,15 +6,19 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   lighthouse:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Installer les dépendances
@@ -24,7 +28,9 @@ jobs:
         run: npm run build
 
       - name: Audit Lighthouse CI
-        uses: treosh/lighthouse-ci-action@v11
+        # Seule action tierce du dépôt : épinglée par SHA de commit (tag v11),
+        # un tag pouvant être déplacé par son propriétaire.
+        uses: treosh/lighthouse-ci-action@72f881228236981b625ed765b928efb1786a1f55 # v11
         with:
           uploadArtifacts: true
           temporaryPublicStorage: true

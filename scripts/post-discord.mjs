@@ -27,9 +27,16 @@ export async function post({ message, author, hashtags, url }) {
     headers: {
       'Content-Type': 'application/json',
     },
+    // `parse: []` neutralise toutes les mentions (@everyone, @here, rôles,
+    // personnes). Sans ce champ Discord les interprète toutes (doc « Allowed
+    // Mentions ») : depuis que les panneaux peuvent venir de propositions
+    // publiques (/creer/), un message contenant « @everyone » notifierait tout
+    // le serveur.
     body: JSON.stringify({
       content: content,
+      allowed_mentions: { parse: [] },
     }),
+    signal: AbortSignal.timeout(15_000),
   });
 
   if (!response.ok) {

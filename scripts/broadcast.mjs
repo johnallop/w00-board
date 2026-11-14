@@ -8,9 +8,21 @@
  */
 
 import fs from 'fs';
+// Module TypeScript importé tel quel : Node 24, celui de broadcast.yml et
+// heartbeat.yml, retire les types à l'exécution (vérifié sous 24.22). Une seule
+// définition de la forme canonique, celle que build.json publie — une copie ici
+// pourrait diverger et bloquer (ou débloquer à tort) la diffusion.
+import { canonicalizeBillboard } from '../src/utils/posterHash.ts';
 import { diffBillboards } from './lib/diff-billboards.mjs';
 import { heartbeatBoard } from './lib/rotation.mjs';
-import { validerPanneauDiffusable, validerSiteUrl, verdictDiffusion } from './lib/diffusion.mjs';
+import {
+  validerPanneauDiffusable,
+  validerSiteUrl,
+  verdictDiffusion,
+  attendreDeploiement,
+  cleIdempotence,
+  filtrerCanaux,
+} from './lib/diffusion.mjs';
 
 // Import dynamique des clients pour éviter les plantages si certains modules ont des soucis
 const CLIENTS = {
@@ -19,6 +31,9 @@ const CLIENTS = {
   nostr: () => import('./post-nostr.mjs'),
   telegram: () => import('./post-telegram.mjs'),
   discord: () => import('./post-discord.mjs'),
+  matrix: () => import('./post-matrix.mjs'),
+  misskey: () => import('./post-misskey.mjs'),
+  ntfy: () => import('./post-ntfy.mjs'),
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -47,6 +62,17 @@ async function main() {
 
   if (dryRun) {
     console.log('⚡ Mode DRY_RUN activé (aucune publication réelle)');
+  }
+
+  let canaux;
+  try {
+    canaux = filtrerCanaux(Object.keys(CLIENTS), process.env.CANAUX);
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
+  if (canaux.length < Object.keys(CLIENTS).length) {
+    console.log(`Canaux restreints à : ${canaux.join(', ')}`);
   }
 
   // Chargement de la config actuelle
@@ -109,6 +135,36 @@ async function main() {
     const diff = diffBillboards(prevConfig, currConfig);
     boardsToBroadcast = [...diff.added, ...diff.changed];
     console.log(`Diff calculé : ${diff.added.length} ajoutés, ${diff.changed.length} modifiés.`);
+
+    /*
+     * Mode diff = déclenché par un push : le site est en train d'être construit
+     * par Cloudflare Pages au même moment. On n'annonce rien avant que
+     * /build.json serve chaque panneau à diffuser À L'IDENTIQUE — sinon le
+     * lien publié répond 404 (panneau ajouté) ou montre l'ancienne affiche
+     * (panneau modifié), et les plateformes mettent cet aperçu faux en cache.
+     * Le critère porte sur le contenu, pas sur le commit : voir
+     * attendreDeploiement (un push plus récent déjà déployé ne bloque plus).
+     * Délai dépassé : échec, pas de publication — un message en retard vaut
+     * mieux qu'un lien mort. Les modes --id et --heartbeat visent un panneau
+     * déjà en ligne. Hors CI (pas de GITHUB_SHA), pas d'attente.
+     */
+    if (boardsToBroadcast.length > 0 && process.env.GITHUB_SHA && !dryRun) {
+      console.log(`Attente de la mise en ligne de ${boardsToBroadcast.length} panneau(x)…`);
+      const { enLigne, vu, manquants } = await attendreDeploiement({
+        siteUrl,
+        canoniques: boardsToBroadcast.map((b) => canonicalizeBillboard(b)),
+        journal: (ligne) => console.log(`  ${ligne}`),
+      });
+      if (!enLigne) {
+        console.error(
+          `❌ Le site (commit ${vu ?? 'inconnu'}) ne sert pas encore à l'identique : ${manquants.join(' ; ')}. ` +
+            'Diffusion annulée. Si un push plus récent a modifié ce panneau, sa propre diffusion ' +
+            "l'annoncera ; sinon relancer avec workflow_dispatch une fois le déploiement terminé."
+        );
+        process.exit(1);
+      }
+      console.log(`✓ Panneaux en ligne (commit déployé : ${vu ?? 'inconnu'}), diffusion autorisée.`);
+    }
   } else {
     console.log('Usage : node scripts/broadcast.mjs [--prev prev-config.json] [--id <id>] [--repost]');
     process.exit(0);
@@ -166,12 +222,13 @@ async function main() {
       ? tags.map((t) => '#' + t.replace(/\s+/g, '')).join(' ')
       : '#Billboard #W00Board';
     const url = `${siteUrl}/b/${board.id}/`;
+    const cle = cleIdempotence(board, process.env.GITHUB_RUN_ID, repost);
 
     console.log(`\n📢 Diffusion du panneau [${board.id}] : "${message}" par ${author}`);
 
     // Diffusion sur chaque canal
     const resultats = [];
-    for (const [name, loader] of Object.entries(CLIENTS)) {
+    for (const [name, loader] of Object.entries(CLIENTS).filter(([n]) => canaux.includes(n))) {
       try {
         const hasCredentials = checkCredentials(name);
 
@@ -192,7 +249,7 @@ async function main() {
         } else {
           console.log(`  [${name}] Envoi en cours...`);
           const module = await loader();
-          await module.post({ message, author, hashtags, url });
+          await module.post({ message, author, hashtags, url, cle });
           resultats.push({ canal: name, etat: 'publie' });
         }
       } catch (err) {
@@ -228,6 +285,12 @@ function checkCredentials(platform) {
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID,
     DISCORD_WEBHOOK_URL,
+    MATRIX_HOMESERVER,
+    MATRIX_ACCESS_TOKEN,
+    MATRIX_ROOM_ID,
+    MISSKEY_INSTANCE,
+    MISSKEY_TOKEN,
+    NTFY_TOPIC,
   } = process.env;
 
   switch (platform) {
@@ -241,6 +304,12 @@ function checkCredentials(platform) {
       return !!(TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID);
     case 'discord':
       return !!DISCORD_WEBHOOK_URL;
+    case 'matrix':
+      return !!(MATRIX_HOMESERVER && MATRIX_ACCESS_TOKEN && MATRIX_ROOM_ID);
+    case 'misskey':
+      return !!(MISSKEY_INSTANCE && MISSKEY_TOKEN);
+    case 'ntfy':
+      return !!NTFY_TOPIC;
     default:
       return false;
   }

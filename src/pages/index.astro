@@ -28,9 +28,11 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
           <span class="brand-badge">Réseau Actif</span>
         </div>
         <div class="board-meta">
-          <a href="/live" class="live-link" aria-label="Lancer le mode plein écran de l'affiche dans le ciel">
+          <a href="/live/" class="live-link" aria-label="Lancer le mode plein écran de l'affiche dans le ciel">
             ▶ Mode Ciel
           </a>
+          <span class="meta-sep" aria-hidden="true">·</span>
+          <a href="/creer/" class="live-link">＋ Proposer</a>
           <span class="meta-sep" aria-hidden="true">·</span>
           <span class="board-count">{billboards.length} panneau{billboards.length > 1 ? 'x' : ''}</span>
         </div>
@@ -115,11 +117,17 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
           );
         })}
 
-        <!-- Carte d'ajout — purement décorative, aria-hidden -->
-        <div class="add-card" aria-hidden="true">
-          <div class="add-icon">+</div>
-          <p class="add-text">Nouveau panneau</p>
-          <code class="add-hint">config.json → billboards[]</code>
+        <!-- Carte d'ajout : un vrai lien vers /creer/. Elle était décorative et
+             aria-hidden tant qu'ajouter un panneau voulait dire éditer
+             config.json ; elle mène désormais à une action réelle. Le
+             conteneur porte role="listitem" : un role="list" ne doit contenir
+             que des éléments de liste (règle ARIA, contrôlée par Lighthouse). -->
+        <div class="add-slot" role="listitem">
+          <a class="add-card" href="/creer/">
+            <span class="add-icon" aria-hidden="true">+</span>
+            <span class="add-text">Proposer un panneau</span>
+            <span class="add-hint">Aperçu en direct · relu avant publication</span>
+          </a>
         </div>
       </div>
 
@@ -298,7 +306,7 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
   }
 
   .brand-badge {
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -605,9 +613,19 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
   }
 
   /* ── Carte d'ajout ────────────────────────────────────────────────────── */
+  .add-slot {
+    display: flex;
+  }
+
   .add-card {
+    flex: 1;
+    box-sizing: border-box;
+    color: inherit;
+    text-decoration: none;
     border-radius: 20px;
-    border: 2px dashed rgba(255,255,255,0.1);
+    /* 0,35 d'alpha : la bordure délimite désormais une cible cliquable, elle
+       doit atteindre 3:1 (WCAG 1.4.11) au lieu de rester un filigrane. */
+    border: 2px dashed rgba(255,255,255,0.35);
     padding: 1.75rem;
     display: flex;
     flex-direction: column;
@@ -617,11 +635,19 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
     text-align: center;
     min-height: 180px;
     transition: border-color 0.2s ease;
-    cursor: default;
   }
 
   .add-card:hover {
-    border-color: rgba(255,255,255,0.2);
+    border-color: var(--accent);
+  }
+
+  .add-card:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+  }
+
+  .add-card > span {
+    display: block;
   }
 
   /* Alphas relevés : ce bloc est aria-hidden (décision assumée, il ne
@@ -644,11 +670,7 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
 
   .add-hint {
     font-size: 0.75rem;
-    color: rgba(255,255,255,0.55);
-    font-family: monospace;
-    background: rgba(255,255,255,0.04);
-    padding: 2px 8px;
-    border-radius: 4px;
+    color: rgba(255,255,255,0.72);
   }
 
   /* ── État vide ────────────────────────────────────────────────────────── */

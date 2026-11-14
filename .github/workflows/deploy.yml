@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# Lecture seule par défaut ; seul le job `ipfs` élargit (contents: write) pour
+# pousser CIDS.log. Sans cette ligne, les droits dépendaient du réglage du dépôt.
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -18,7 +23,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Installer les dépendances
@@ -158,6 +163,13 @@ jobs:
     needs: build-and-test
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Partagé avec heartbeat.yml : une seule publication IPNS à la fois, sinon
+    # deux runs lisent la même séquence et publient chacun N+1, et deux pushes
+    # concurrents sur ipfs-history se rejettent (non fast-forward).
+    concurrency:
+      group: ipfs-mirror
+      cancel-in-progress: false
     permissions:
       contents: write # push de CIDS.log sur la branche ipfs-history
     env:
@@ -182,7 +194,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.guard.outputs.configured == 'true'
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Installer les dépendances
@@ -216,14 +228,26 @@ jobs:
           CID_ATTENDU: ${{ needs.build-and-test.outputs.cid }}
         run: npm run check:cid -- --output w00.car --expect "$CID_ATTENDU"
 
-      - name: Épingler sur Storacha (w3 up)
+      # @storacha/cli remplace @web3-storage/w3cli, déprécié (« Web3.storage
+      # became storacha.network, please upgrade to @storacha/cli »).
+      # Équivalence vérifiée dans le code des deux paquets le 2026-11-14 :
+      #   - mêmes commandes : `space add <preuve>` et `up --car` ;
+      #   - même lecture de la preuve, CID.parse(…, base64) (storacha
+      #     index.js:342, w3cli index.js:266) : la délégation déjà stockée dans
+      #     W3_PROOF reste valide ;
+      #   - la clé se lit dans STORACHA_PRINCIPAL (lib.js:117) au lieu de
+      #     W3_PRINCIPAL : on y passe le MÊME secret, rien à recréer.
+      # Version figée : sans version, une publication compromise ou cassante du
+      # CLI s'exécuterait dans un job `contents: write` qui détient la clé.
+      - name: Épingler sur Storacha (storacha up)
         if: steps.guard.outputs.configured == 'true'
         env:
           CID: ${{ steps.pack.outputs.cid }}
+          STORACHA_PRINCIPAL: ${{ secrets.W3_PRINCIPAL }}
         run: |
-          npm install -g @web3-storage/w3cli
-          w3 space add "$W3_PROOF"
-          w3 up --car w00.car
+          npm install -g @storacha/cli@3.0.1
+          storacha space add "$W3_PROOF"
+          storacha up --car w00.car
           echo "✓ Épinglé : https://${CID}.ipfs.w3s.link/"
 
       # IPNS peut échouer sans casser le pin : le fallback documenté reste
@@ -318,7 +342,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Installer les dépendances

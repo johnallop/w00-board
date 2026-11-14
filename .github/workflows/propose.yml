@@ -1,0 +1,105 @@
+name: Proposition — panneau approuvé → pull request
+
+# Chaîne de modération des panneaux proposés depuis /creer/ :
+#
+#   1. la page ouvre une issue préremplie (bloc ```json) ;
+#   2. un mainteneur la relit et pose le label `panneau-approuve` — seul un
+#      compte ayant au moins le rôle « triage » peut poser un label ;
+#   3. ce workflow ajoute le panneau à config.json, vérifie par un BUILD complet
+#      (validateConfig : contraste WCAG, unicité de l'id…) et ouvre une PR ;
+#   4. la fusion de la PR, geste humain, déclenche déploiement et diffusion.
+#
+# Rien n'est publié avant l'étape 4 : si le corps de l'issue a été modifié entre
+# la relecture et le label, la différence est visible dans la PR.
+#
+# Prérequis côté dépôt (une fois) :
+#   - Settings → Actions → General → « Allow GitHub Actions to create and
+#     approve pull requests » ;
+#   - les labels `proposition-panneau` et `panneau-approuve` (voir README).
+#
+# Limite connue : une PR ouverte avec GITHUB_TOKEN ne déclenche pas les
+# workflows `pull_request` (deploy, lighthouse). Le build de l'étape 3 couvre
+# la validation ; pour relancer la CI complète, fermer puis rouvrir la PR.
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write # pousser la branche de proposition
+  pull-requests: write # ouvrir la PR
+  issues: write # commenter l'issue en cas d'échec
+
+concurrency:
+  group: proposition-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  proposer:
+    if: github.event.label.name == 'panneau-approuve'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      # Le corps de l'issue est une donnée NON FIABLE : il transite par `env:`,
+      # jamais par une interpolation dans le script (voir broadcast.yml).
+      - name: Ajouter le panneau à la configuration
+        id: ajout
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: node scripts/propose-board.mjs 2>&1 | tee "$RUNNER_TEMP/proposition.log"
+        shell: bash
+
+      - name: Vérifier par le build complet
+        run: npm run build 2>&1 | tee -a "$RUNNER_TEMP/proposition.log"
+        shell: bash
+
+      - name: Ouvrir la pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          BOARD_ID: ${{ steps.ajout.outputs.id }}
+        run: |
+          BRANCHE="proposition/${ISSUE_NUMBER}-${BOARD_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCHE"
+          git add src/data/config.json
+          git commit -m "feat: panneau ${BOARD_ID} (proposition #${ISSUE_NUMBER})"
+          # Branche propre au bot : une relance après correction l'écrase.
+          git push --force origin "$BRANCHE"
+          if ! gh pr view "$BRANCHE" >/dev/null 2>&1; then
+            gh pr create --base main --head "$BRANCHE" \
+              --title "Panneau proposé : ${BOARD_ID}" \
+              --body "Ajoute le panneau \`${BOARD_ID}\` proposé dans #${ISSUE_NUMBER}. Build complet vérifié par le workflow. Closes #${ISSUE_NUMBER}"
+          fi
+
+      # Le proposant ne voit pas les logs Actions : l'échec lui est expliqué
+      # sur l'issue, avec les dernières lignes utiles (erreur de validation).
+      - name: Signaler l'échec sur l'issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          {
+            echo "La proposition n'a pas pu être ajoutée automatiquement."
+            echo
+            echo '```'
+            grep -E '❌|Error|config\.json :' "$RUNNER_TEMP/proposition.log" 2>/dev/null | tail -5 || true
+            echo '```'
+            echo
+            echo "Corrigez le bloc JSON de l'issue (ou recréez-la depuis /creer/), puis retirez et reposez le label. Détails : $RUN_URL"
+          } > "$RUNNER_TEMP/commentaire.md"
+          gh issue comment "$ISSUE_NUMBER" --body-file "$RUNNER_TEMP/commentaire.md"

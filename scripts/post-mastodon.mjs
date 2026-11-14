@@ -14,9 +14,10 @@ import { URLSearchParams } from 'url';
  * @param {string} params.author
  * @param {string} params.hashtags
  * @param {string} params.url
+ * @param {string} [params.cle] — clé d'idempotence, identique lors d'une relance du même run
  * @returns {Promise<void>}
  */
-export async function post({ message, author, hashtags, url }) {
+export async function post({ message, author, hashtags, url, cle }) {
   const { MASTODON_TOKEN, MASTODON_INSTANCE } = process.env;
 
   if (!MASTODON_TOKEN || !MASTODON_INSTANCE) {
@@ -34,8 +35,14 @@ export async function post({ message, author, hashtags, url }) {
     headers: {
       Authorization: `Bearer ${MASTODON_TOKEN}`,
       'Content-Type': 'application/x-www-form-urlencoded',
+      // « Prevent duplicate submissions of the same status », clé gardée 1 h
+      // (docs.joinmastodon.org/methods/statuses). Relancer un run en échec ne
+      // republie plus sur Mastodon : voir cleIdempotence (lib/diffusion.mjs).
+      ...(cle ? { 'Idempotency-Key': cle } : {}),
     },
     body: body.toString(),
+    // Sans délai, un appel bloqué consommait toute la durée du job.
+    signal: AbortSignal.timeout(15_000),
   });
 
   if (!response.ok) {
