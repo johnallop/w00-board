@@ -2,6 +2,7 @@ import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { CHEMIN_MANIFESTE } from '../utils/precacheManifeste';
+import { resolveCommit } from '../utils/commit';
 
 /**
  * Émet /sw.js depuis le build au lieu de le copier verbatim depuis public/.
@@ -22,10 +23,11 @@ import { CHEMIN_MANIFESTE } from '../utils/precacheManifeste';
  *    à dist/ ;
  *  - la garde de péremption par mtime s'applique à lui comme aux autres.
  *
- * REPRODUCTIBILITÉ. La seule entrée non déclarative est GITHUB_SHA, déjà
- * sanctionnée par build.json.ts et par la doctrine de check-reproducible.mjs :
- * « les octets ne varient QUE par des entrées déclarées ». À arbre et
- * environnement identiques, la sortie est identique.
+ * REPRODUCTIBILITÉ. La seule entrée non déclarative est le commit, résolu par
+ * src/utils/commit.ts depuis GITHUB_SHA ou CF_PAGES_COMMIT_SHA selon le runner
+ * qui bâtit. Elle est déjà sanctionnée par build.json.ts et par la doctrine de
+ * check-reproducible.mjs : « les octets ne varient QUE par des entrées
+ * déclarées ». À arbre et environnement identiques, la sortie est identique.
  */
 export const prerender = true;
 
@@ -272,10 +274,12 @@ export function GET(): Response {
    * reste ce qu'il voit hors ligne, et ce que la branche « assets » sert quand
    * une ressource hachee n'existe plus. L'oubli reste donc invisible.
    *
-   * Meme expression que build.json.ts, pour que les deux manifestes s'accordent
-   * par construction plutot que par vigilance.
+   * Meme FONCTION que build.json.ts, et non plus la meme expression recopiee :
+   * les deux manifestes s'accordent desormais par construction, y compris le
+   * jour ou la liste des variables d'environnement consultees changera. Elle
+   * vient justement de changer — voir src/utils/commit.ts.
    */
-  const commit = process.env.GITHUB_SHA || 'dev';
+  const commit = resolveCommit();
   const precache = [...PAGES, ...RESSOURCES, ...polices()];
 
   return new Response(source(`w00-board-${commit}`, precache), {

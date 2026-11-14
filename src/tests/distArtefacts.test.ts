@@ -8,6 +8,7 @@ import { GET as getFeedXml } from '../pages/feed.xml';
 import { GET as getBuildJson } from '../pages/build.json';
 import config from '../data/config.json';
 import { canonicalizeBillboard, computeFingerprint, formatFingerprint } from '../utils/posterHash';
+import { resolveCommit } from '../utils/commit';
 import { nonConformingKeys, undeclaredPrefixes, unbalancedTags } from './helpers/feedConformance';
 
 /*
@@ -168,15 +169,21 @@ describe.skipIf(!DIST_PRESENT)('dist/build.json — après compression', () => {
   });
 
   /*
-   * `commit` vient de process.env.GITHUB_SHA : c'est la seule entrée non
-   * déclarative du build. L'égalité route↔artefact suppose donc que ce test
-   * tourne dans le même environnement que le build qui a produit dist/ — vrai en
-   * CI (même job, même variable) et en local (« dev » des deux côtés). Le test
-   * qui suit rend cette hypothèse visible : s'il rougit, c'est l'environnement
-   * qui a bougé, pas la compression, et le message d'échec le dira tout seul.
+   * `commit` est la seule entrée non déclarative du build. L'égalité
+   * route↔artefact suppose donc que ce test tourne dans le même environnement
+   * que le build qui a produit dist/ — vrai en CI (même job, mêmes variables) et
+   * en local (« dev » des deux côtés). Le test qui suit rend cette hypothèse
+   * visible : s'il rougit, c'est l'environnement qui a bougé, pas la
+   * compression, et le message d'échec le dira tout seul.
+   *
+   * L'attendu passe par resolveCommit() plutôt que par une expression jumelle
+   * recopiée ici. La version précédente lisait `process.env.GITHUB_SHA || 'dev'`
+   * — vrai tant que la route lisait la même chose, faux le jour où elle s'est
+   * mise à lire aussi CF_PAGES_COMMIT_SHA. Un attendu recopié ne suit pas le
+   * code qu'il mesure ; il finit par mesurer autre chose, en restant vert.
    */
   it('porte le commit de l’environnement qui a construit dist/', () => {
-    expect(JSON.parse(readDist('build.json')).commit).toBe(process.env.GITHUB_SHA || 'dev');
+    expect(JSON.parse(readDist('build.json')).commit).toBe(resolveCommit());
   });
 
   it('porte exactement les mêmes valeurs que la route', async () => {

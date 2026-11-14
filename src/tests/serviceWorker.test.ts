@@ -717,25 +717,36 @@ describe.each(ARTEFACTS)('service worker exécuté — $nom', ({ source }) => {
  * Dans un dépôt dont tout l'appareillage prouve que le build est reproductible
  * et adressable par son contenu, la clé du cache était le dernier fait tenu par
  * la mémoire d'un humain. L'oublier ne casse rien de visible : ça sert
- * l'ancienne version. Et comme les navigations sont en stale-while-revalidate,
- * cette ancienne version est celle du premier affichage.
+ * l'ancienne version — hors ligne, et sur toute ressource hachée qu'une
+ * génération remplacée ne sert plus (les navigations, elles, sont passées en
+ * network-first au lot 8).
  *
  * Ce test ne vérifie pas la VALEUR du nom — ce serait le même fait tenu à la
  * main, recopié un cran plus loin. Il vérifie le COUPLAGE : deux commits
  * différents doivent donner deux noms différents.
+ *
+ * Les DEUX variables sont neutralisées, pas seulement GITHUB_SHA. Depuis que
+ * resolveCommit() lit aussi CF_PAGES_COMMIT_SHA (src/utils/commit.ts), n'en
+ * effacer qu'une laisserait l'autre décider du nom : le cas « hors CI » plus
+ * bas passerait au vert sur un runner Cloudflare pour la mauvaise raison, et
+ * les deux commits comparés ici pourraient produire le même nom.
  */
 describe('nom de cache dérivé du commit', () => {
+  const VARIABLES_DE_COMMIT = ['GITHUB_SHA', 'CF_PAGES_COMMIT_SHA'] as const;
+
   async function nomDeCachePour(sha: string | undefined): Promise<string> {
-    const avant = process.env.GITHUB_SHA;
+    const avant = VARIABLES_DE_COMMIT.map((nom) => [nom, process.env[nom]] as const);
     try {
-      if (sha === undefined) delete process.env.GITHUB_SHA;
-      else process.env.GITHUB_SHA = sha;
+      for (const [nom] of avant) delete process.env[nom];
+      if (sha !== undefined) process.env.GITHUB_SHA = sha;
       const sw = chargerSw(await getSw().text());
       await sw.installer();
       return sw.ouverts[0]!;
     } finally {
-      if (avant === undefined) delete process.env.GITHUB_SHA;
-      else process.env.GITHUB_SHA = avant;
+      for (const [nom, valeur] of avant) {
+        if (valeur === undefined) delete process.env[nom];
+        else process.env[nom] = valeur;
+      }
     }
   }
 
@@ -747,14 +758,38 @@ describe('nom de cache dérivé du commit', () => {
     expect(
       b,
       'Le nom de cache ne suit pas le commit : il faut penser à l’incrémenter à ' +
-        'la main, et l’oublier sert silencieusement l’ancienne version — au ' +
-        'premier affichage, puisque les navigations sont en stale-while-revalidate.'
+        'la main, et l’oublier sert silencieusement l’ancienne version — hors ' +
+        'ligne, et sur toute ressource hachée que la génération courante ne ' +
+        'sert plus.'
     ).not.toBe(a);
   });
 
+  it('suit CF_PAGES_COMMIT_SHA quand GITHUB_SHA est absente', async () => {
+    /*
+     * LE test qui aurait dû exister. Cloudflare Pages est le seul runner qui
+     * déploie réellement, et GITHUB_SHA n'y existe pas : le nom de cache y
+     * valait « w00-board-dev » à chaque version, donc ne tournait jamais. Le
+     * couplage vérifié plus haut était vrai en CI et faux en production.
+     */
+    const avant = process.env.GITHUB_SHA;
+    const avantCf = process.env.CF_PAGES_COMMIT_SHA;
+    try {
+      delete process.env.GITHUB_SHA;
+      process.env.CF_PAGES_COMMIT_SHA = 'c'.repeat(40);
+      const sw = chargerSw(await getSw().text());
+      await sw.installer();
+      expect(sw.ouverts[0]).toBe(`w00-board-${'c'.repeat(40)}`);
+    } finally {
+      if (avant === undefined) delete process.env.GITHUB_SHA;
+      else process.env.GITHUB_SHA = avant;
+      if (avantCf === undefined) delete process.env.CF_PAGES_COMMIT_SHA;
+      else process.env.CF_PAGES_COMMIT_SHA = avantCf;
+    }
+  });
+
   it('retombe sur « dev » hors CI, comme build.json', async () => {
-    // Même expression que build.json.ts : les deux manifestes doivent s'accorder
-    // par construction, pas par vigilance.
+    // Même fonction que build.json.ts (resolveCommit) : les deux manifestes
+    // doivent s'accorder par construction, pas par vigilance.
     expect(await nomDeCachePour(undefined)).toBe('w00-board-dev');
   });
 });
