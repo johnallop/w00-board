@@ -44,6 +44,19 @@ Tout le contenu et l'apparence sont contrôlés par **`src/data/config.json`** :
 
 Chaque panneau du tableau `billboards[]` possède : `id` (slug URL, unique), `message`, `author`, et en option `tags` (affichés et convertis en hashtags à la diffusion), `accentColor` (surcharge la couleur d'accent du thème pour ce panneau) et `date` (ISO 8601 — fuseau **obligatoire** si une heure est présente, pour un build reproductible ; utilisée comme date de publication dans les flux et le sitemap).
 
+### Comptes sociaux associés (optionnel)
+
+La clé `social` relie le panneau à ses comptes publics. Ils apparaissent dans le pied de page de chaque page (liens `rel="me"`, qui permettent par exemple à Mastodon d'afficher le site comme vérifié sur le profil), dans le JSON-LD (`sameAs`) et dans `llms.txt`. Absente ou vide, rien ne s'affiche.
+
+```json
+"social": [
+  { "network": "mastodon", "url": "https://mastodon.social/@exemple", "label": "@exemple@mastodon.social" },
+  { "network": "bluesky", "url": "https://bsky.app/profile/exemple.bsky.social" }
+]
+```
+
+`network` est l'un de : `mastodon`, `bluesky`, `nostr`, `matrix`, `misskey`, `pixelfed`, `peertube`, `lemmy`, `ntfy`, `telegram`, `discord`, `github`, `youtube`, `instagram`, `threads`, `tiktok`, `linkedin`, `facebook`, `x`, `website`. `url` doit être en `https://` ; `label` (40 caractères au plus) remplace le nom du réseau comme texte du lien. 12 profils au plus.
+
 ### Options d'alignement
 
 | Champ | Valeurs acceptées |
@@ -53,14 +66,18 @@ Chaque panneau du tableau `billboards[]` possède : `id` (slug URL, unique), `me
 
 La config est **validée au build** (`src/utils/validateConfig.ts`) — une valeur invalide provoque une erreur claire plutôt qu'un rendu silencieusement cassé.
 
+Le site suppose un **fond sombre** : les textes secondaires (dates, légendes, compteurs) sont en blanc translucide, 50 % d'opacité au plus bas. La validation refuse un `backgroundColor` sur lequel ce blanc tombe sous 4,5:1 — un thème clair rendrait ces textes blanc sur blanc.
+
 ## Ce que génère le site
 
 | URL | Format | Usage |
 |-----|--------|-------|
 | `/` | HTML | Le mur : tous les panneaux, filtrables par tag |
 | `/b/<id>/` | HTML | Une affiche par panneau — l'URL canonique à partager |
+| `/creer/` | HTML | Formulaire de proposition d'un panneau, avec aperçu et validation en direct |
 | `/og-image.png` | PNG 1200×630 | Aperçu pour les réseaux sociaux (premier panneau) |
 | `/og/<id>.png` | PNG 1200×630 | Carte OG dédiée de chaque panneau |
+| `/icons/*.png` | PNG | Icônes de l'application installable (192, 512, maskable, Apple 180), rendues depuis `favicon.svg` |
 | `/feed.xml` | RSS 2.0 | Lecteurs de flux |
 | `/feed.json` | JSON Feed 1.1 | Lecteurs de flux modernes |
 | `/llms.txt` | Markdown | Résumé pour les IA (AEO/GEO) |
@@ -86,6 +103,7 @@ src/
 ├── pages/
 │   ├── index.astro                 # Le mur multi-panneaux (statique)
 │   ├── b/[id].astro                # L'affiche individuelle de chaque panneau
+│   ├── creer.astro                 # Proposer un panneau (formulaire + aperçu)
 │   ├── og/[id].png.ts              # Carte OG dédiée par panneau
 │   ├── feed.xml.ts                 # Flux RSS
 │   ├── feed.json.ts                # Flux JSON Feed 1.1
@@ -99,7 +117,13 @@ src/
     ├── ogTemplate.test.ts
     └── validateConfig.test.ts
 scripts/
+├── lib/
+│   └── proposition.mjs             # Contrat page /creer/ ↔ workflow propose.yml
+├── propose-board.mjs               # Issue approuvée → panneau ajouté à config.json
 ├── post-bluesky.mjs                # Publication Bluesky (AT Protocol)
+├── post-matrix.mjs                 # Publication Matrix
+├── post-misskey.mjs                # Publication Misskey (Fediverse)
+├── post-ntfy.mjs                   # Notification ntfy
 └── post-nostr.mjs                  # Publication Nostr
 public/
 ├── _headers                        # En-têtes Cloudflare Pages (CSP, Cache-Control)
@@ -108,6 +132,7 @@ public/
 .github/workflows/
 ├── deploy.yml                      # Tests + build + vérification des artefacts
 ├── broadcast.yml                   # Diffusion multi-protocoles au changement de config
+├── propose.yml                     # Proposition approuvée → pull request
 └── lighthouse.yml                  # Audit Lighthouse CI (perf, a11y, SEO)
 ```
 
@@ -133,8 +158,49 @@ Une exception assumée : `frame-ancestors` ne figure que dans `public/_headers`.
 | `BLUESKY_HANDLE`, `BLUESKY_PASSWORD` | Bluesky (AT Protocol) |
 | `NOSTR_PRIVATE_KEY` | Nostr |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Telegram (Bot sendMessage API) |
-| `DISCORD_WEBHOOK_URL` | Discord (Webhook URL) |
+| `DISCORD_WEBHOOK_URL` | Discord (Webhook URL) — mentions `@everyone`/`@here` neutralisées |
+| `MATRIX_HOMESERVER`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID` | Matrix (salon rejoint au préalable par le compte bot) |
+| `MISSKEY_INSTANCE`, `MISSKEY_TOKEN` | Misskey et dérivés (Sharkey, Firefish…) — Fediverse |
+| `NTFY_TOPIC` (+ optionnels `NTFY_SERVER`, `NTFY_TOKEN`) | ntfy — notifications push, serveur par défaut `https://ntfy.sh` |
 | `SITE_URL` | URL canonique (défaut : `https://board.wooddyviat.com`) |
+
+Documentation réseau des trois canaux ajoutés (exigée par `AGENTS.md`) :
+
+- **Données envoyées** : uniquement le texte publié (message, signature, hashtags, URL du panneau), déjà public. Aucune donnée de visiteur.
+- **Domaines contactés** : ceux que vous configurez (`MATRIX_HOMESERVER`, `MISSKEY_INSTANCE`, `NTFY_SERVER` ou `ntfy.sh`), depuis le runner GitHub Actions — jamais depuis le navigateur.
+- **Coût** : protocoles et logiciels libres, auto-hébergeables. ntfy.sh est gratuit avec des limites de débit (`À vérifier` sur docs.ntfy.sh si le volume augmente) ; un sujet ntfy.sh est **public** — protégez-le par un jeton ou auto-hébergez.
+- **Repli** : chaque canal est indépendant ; retirer ses secrets le désactive.
+- **Écartés** : X, Threads, LinkedIn, Instagram — API payantes ou soumises à revue d'application, incompatibles avec la règle « libre et gratuit d'abord ». Ils restent affichables comme **profils** via `social[]`.
+
+Ces workflows tournent sous **Node 24** : `nostr-tools` utilise le `WebSocket` global, absent de Node 20 (le heartbeat échouait chaque semaine pour cette raison jusqu'en novembre 2026).
+
+Fiabilité de la diffusion :
+
+- **Attente du déploiement** : au push, rien n'est publié tant que `/build.json` ne sert pas chaque panneau à diffuser **à l'identique** (même forme canonique que son empreinte), 10 minutes au plus. Le critère porte sur le contenu, pas sur le commit : si un push plus récent est déjà déployé avec le panneau intact, la diffusion part ; s'il a modifié le panneau, c'est sa propre diffusion qui annoncera la bonne version. Délai dépassé : diffusion annulée plutôt qu'un lien en 404 ou une affiche périmée annoncés partout.
+- **Relance sans doublon** : un « Re-run » garde la même clé d'idempotence. Mastodon (`Idempotency-Key`, 1 h) et Matrix (identifiant de transaction) ignorent la seconde tentative ; les autres canaux, non.
+- **Rejouer certains canaux** : le champ `canaux` du lancement manuel (ex. `nostr,matrix`) limite la diffusion aux canaux nommés — à utiliser après un échec partiel.
+- Les secrets ne sont exposés qu'à l'étape qui diffuse, pas à `npm ci` ; les workflows déclarent des permissions en lecture seule par défaut.
+
+## Proposer un panneau depuis le site
+
+La page **`/creer/`** permet à n'importe qui de composer un panneau : aperçu en direct, et vérification dans le navigateur par **le même `validateConfig` que le build** (contraste WCAG, identifiant unique), plus des bornes de modération (message ≤ 280 caractères, signature ≤ 60, 5 tags au plus).
+
+Le site reste 100 % statique, sans compte ni base de données : la proposition part en **issue GitHub préremplie** (compte GitHub requis, proposition publique).
+
+1. Un mainteneur relit l'issue et pose le label **`panneau-approuve`** — seul un compte ayant au moins le rôle « triage » peut poser un label.
+2. Le workflow `propose.yml` ajoute le panneau **en fin de mur** dans `config.json`, vérifie par un build complet, puis ouvre une **pull request**. En cas d'échec, il explique l'erreur en commentaire de l'issue.
+3. La fusion de la PR — geste humain — déclenche le déploiement et la diffusion. Rien n'est publié avant.
+
+Le propriétaire du dépôt peut aussi utiliser « Télécharger config.json » sur la même page pour publier sans passer par la modération.
+
+Mise en place, une seule fois :
+
+```bash
+gh label create proposition-panneau --description "Panneau proposé depuis /creer/" --color 38bdf8
+gh label create panneau-approuve --description "Approuvé : ouvre la PR d'ajout" --color 22c55e
+```
+
+Puis **Settings → Actions → General → « Allow GitHub Actions to create and approve pull requests »**. Limite connue : une PR ouverte par `GITHUB_TOKEN` ne déclenche pas `deploy.yml` ni `lighthouse.yml` ; fermer puis rouvrir la PR relance la CI complète.
 
 
 ## Miroir IPFS
@@ -152,14 +218,14 @@ Le CID est calculé **localement** (`ipfs-car pack dist --no-wrap`) avant tout u
 1. **Storacha** (nécessite une vérification e-mail interactive — impossible en CI) :
 
    ```bash
-   npm install -g @web3-storage/w3cli
-   w3 login vous@exemple.com          # cliquer le lien reçu par e-mail
-   w3 space create w00-board
-   w3 key create                       # → did:key:... (public) + clé privée
-   w3 delegation create <did:key:...> --base64
+   npm install -g @storacha/cli@3.0.1
+   storacha login vous@exemple.com          # cliquer le lien reçu par e-mail
+   storacha space create w00-board
+   storacha key create                       # → did:key:... (public) + clé privée
+   storacha delegation create <did:key:...> --base64
    ```
 
-   Secrets GitHub à créer : `W3_PRINCIPAL` = la clé privée émise par `w3 key create`, `W3_PROOF` = la délégation base64.
+   Secrets GitHub à créer : `W3_PRINCIPAL` = la clé privée émise par `storacha key create`, `W3_PROOF` = la délégation base64. Les noms des secrets sont restés ceux de l'ancien CLI `w3` (déprécié) : une délégation déjà créée avec `w3` reste valide, les deux CLI la lisent de la même façon.
 
 2. **Clé IPNS (w3name)** :
 
@@ -173,7 +239,7 @@ Secrets absents → le job `ipfs` s'ignore proprement avec un log, le déploieme
 
 ### Documentation du service (exigée par `AGENTS.md`)
 
-- **Service** : [Storacha](https://storacha.network) (successeur de web3.storage), client `w3cli` et packer `ipfs-car` open source.
+- **Service** : [Storacha](https://storacha.network) (successeur de web3.storage), client `@storacha/cli` (version figée dans `deploy.yml`) et packer `ipfs-car` open source.
 - **Coût / quotas** : free tier ≈ 5 Go (`À vérifier` lors du setup) — le site fait < 5 Mo par snapshot, marge très large.
 - **Données envoyées** : uniquement le contenu déjà public du site (`dist/`). Aucune donnée personnelle.
 - **Portabilité / stratégie de sortie** : le CID est calculé localement avant upload ; n'importe quel autre service de pinning (Pinata, Filebase) ou un nœud Kubo auto-hébergé peut resservir **le même CID à l'identique**. Changer de service = changer une seule commande d'upload dans le job.
