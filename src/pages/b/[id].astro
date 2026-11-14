@@ -226,9 +226,31 @@ const sealSvg = generateSealSvg(fingerprint, accent, 96);
        * export et feuille d'impression montrent enfin le même code.
        */
 
+      /*
+       * URL `data:` et non `blob:`, à dessein.
+       *
+       * Le code créait un Blob et l'affectait à `img.src`. Les DEUX politiques
+       * CSP du site — public/_headers et le <meta> de Layout.astro — déclarent
+       * `img-src 'self' data:`. `blob:` n'y figure pas : le navigateur bloquait
+       * le chargement, `img.onerror` partait, et le bouton affichait « QR
+       * impossible » sur 100 % des panneaux, en production comme en local.
+       *
+       * Deux réparations possibles. Élargir `img-src` à `blob:` dans les deux
+       * fichiers (headers.test.ts impose de toucher les deux, et l'intersection
+       * des politiques bloquerait sinon quand même) — ou encoder le SVG dans un
+       * schéma déjà autorisé. On choisit le second : une politique qu'on n'a pas
+       * eu besoin d'élargir reste plus étroite, et c'est un QR code de quelques
+       * kilo-octets, pas un média.
+       *
+       * `encodeURIComponent` plutôt que `btoa` : le SVG est de l'UTF-8, et
+       * `btoa` ne prend que du Latin-1 — il lèverait sur le premier caractère
+       * non ASCII qu'un message accentué finirait par y introduire.
+       *
+       * Rien à révoquer ensuite : une URL `data:` ne réserve pas de ressource,
+       * contrairement à `createObjectURL` dont l'oubli fuit.
+       */
       const img = new Image();
-      const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-      const blobUrl = URL.createObjectURL(svgBlob);
+      const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgString)}`;
 
       img.onload = () => {
         const canvas = document.createElement('canvas');
@@ -249,16 +271,13 @@ const sealSvg = generateSealSvg(fingerprint, accent, 96);
         } else {
           echecQr('canvas 2d indisponible');
         }
-
-        URL.revokeObjectURL(blobUrl);
       };
 
       img.onerror = () => {
         echecQr('le SVG n’a pas pu être rasterisé');
-        URL.revokeObjectURL(blobUrl);
       };
 
-      img.src = blobUrl;
+      img.src = svgUrl;
     } catch (err) {
       echecQr(err);
     }
