@@ -385,7 +385,7 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
   }
 
   .filter-count {
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     font-weight: 700;
     color: rgba(255,255,255,0.55);
   }
@@ -504,7 +504,7 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
     border-radius: 100px;
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.07);
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -582,7 +582,7 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
   }
 
   .tag-chip {
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     font-weight: 600;
     padding: 3px 9px;
     border-radius: 100px;
@@ -643,7 +643,7 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
   }
 
   .add-hint {
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     color: rgba(255,255,255,0.55);
     font-family: monospace;
     background: rgba(255,255,255,0.04);
@@ -692,6 +692,27 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
     .filter-bar   { padding: 0.75rem 1rem; }
     .board-grid   { padding: 1rem 1rem 3rem; gap: 1rem; }
     /* Plus de surcharge de .card-message : le clamp() couvre déjà mobile. */
+
+    /*
+     * Cibles tactiles des puces de tag.
+     *
+     * Elles mesuraient 43×22 et 50×22 px, sous le minimum de 48×48 px, et elles
+     * se superposent à `.main-card-link` qui couvre toute la carte. Pour
+     * Lighthouse comme pour un doigt, une cible sous-dimensionnée posée sur une
+     * grande cible est ambiguë : viser le tag, c'est risquer d'ouvrir le
+     * panneau. C'est ce qui faisait tomber `tap-targets` à 50 %.
+     *
+     * Seule la zone cliquable grandit ici — la bordure arrondie et le fond
+     * suivent, donc la puce devient plus haute. C'est le compromis assumé :
+     * sur un écran tactile, 48 px est la taille recommandée, pas un excès.
+     */
+    .tag-chip {
+      min-width: 48px;
+      min-height: 48px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
   }
 
   @media (max-width: 480px) {

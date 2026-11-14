@@ -1,6 +1,7 @@
 import rawConfig from '../data/config.json';
 import { validateConfig } from '../utils/validateConfig';
 import { canonicalizeBillboard, computeFingerprint } from '../utils/posterHash';
+import { resolveCommit } from '../utils/commit';
 
 export const prerender = true;
 
@@ -18,7 +19,10 @@ export const prerender = true;
 export async function GET() {
   validateConfig(rawConfig);
 
-  const commit = process.env.GITHUB_SHA || 'dev';
+  // Lue par resolveCommit(), pas par process.env directement : voir
+  // src/utils/commit.ts pour la raison — GITHUB_SHA seule est absente du
+  // runner qui déploie réellement, et ce fichier publiait « dev ».
+  const commit = resolveCommit();
 
   const billboards = await Promise.all(
     rawConfig.billboards.map(async (board) => ({

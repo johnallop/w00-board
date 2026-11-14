@@ -8,6 +8,7 @@ import { GET as getFeedXml } from '../pages/feed.xml';
 import { GET as getBuildJson } from '../pages/build.json';
 import config from '../data/config.json';
 import { canonicalizeBillboard, computeFingerprint, formatFingerprint } from '../utils/posterHash';
+import { resolveCommit } from '../utils/commit';
 import { nonConformingKeys, undeclaredPrefixes, unbalancedTags } from './helpers/feedConformance';
 
 /*
@@ -35,7 +36,7 @@ import { nonConformingKeys, undeclaredPrefixes, unbalancedTags } from './helpers
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const DIST = join(ROOT, 'dist');
-const SITE = 'https://w00-board.pages.dev/';
+const SITE = 'https://board.wooddyviat.com/';
 
 /**
  * Exiger dist/ plutôt que se sauter en silence.
@@ -168,15 +169,21 @@ describe.skipIf(!DIST_PRESENT)('dist/build.json — après compression', () => {
   });
 
   /*
-   * `commit` vient de process.env.GITHUB_SHA : c'est la seule entrée non
-   * déclarative du build. L'égalité route↔artefact suppose donc que ce test
-   * tourne dans le même environnement que le build qui a produit dist/ — vrai en
-   * CI (même job, même variable) et en local (« dev » des deux côtés). Le test
-   * qui suit rend cette hypothèse visible : s'il rougit, c'est l'environnement
-   * qui a bougé, pas la compression, et le message d'échec le dira tout seul.
+   * `commit` est la seule entrée non déclarative du build. L'égalité
+   * route↔artefact suppose donc que ce test tourne dans le même environnement
+   * que le build qui a produit dist/ — vrai en CI (même job, mêmes variables) et
+   * en local (« dev » des deux côtés). Le test qui suit rend cette hypothèse
+   * visible : s'il rougit, c'est l'environnement qui a bougé, pas la
+   * compression, et le message d'échec le dira tout seul.
+   *
+   * L'attendu passe par resolveCommit() plutôt que par une expression jumelle
+   * recopiée ici. La version précédente lisait `process.env.GITHUB_SHA || 'dev'`
+   * — vrai tant que la route lisait la même chose, faux le jour où elle s'est
+   * mise à lire aussi CF_PAGES_COMMIT_SHA. Un attendu recopié ne suit pas le
+   * code qu'il mesure ; il finit par mesurer autre chose, en restant vert.
    */
   it('porte le commit de l’environnement qui a construit dist/', () => {
-    expect(JSON.parse(readDist('build.json')).commit).toBe(process.env.GITHUB_SHA || 'dev');
+    expect(JSON.parse(readDist('build.json')).commit).toBe(resolveCommit());
   });
 
   it('porte exactement les mêmes valeurs que la route', async () => {
@@ -224,13 +231,32 @@ describe.skipIf(!DIST_PRESENT)('dist/feed.xml — après build', () => {
 });
 
 describe.skipIf(!DIST_PRESENT)('dist/b/<id>/ — empreintes après minification HTML', () => {
-  const pages = config.billboards.map((board) => ({
-    board,
-    html: readDist(join('b', board.id, 'index.html')),
-  }));
+  /*
+   * LECTURE DIFFÉRÉE, ET NON CALCULÉE DANS LE CORPS DU DESCRIBE.
+   *
+   * `describe.skipIf` marque les tests comme sautés ; il n'empêche pas le corps
+   * du describe de s'exécuter à la collecte. Un `readDist()` posé directement
+   * ici levait donc quand dist/ était absent, et faisait échouer la SUITE
+   * ENTIÈRE avant qu'aucun `skipIf` n'ait eu l'occasion de jouer.
+   *
+   * Conséquence : `npm test` seul — la commande que le README donne en premier,
+   * et la seule que quelqu'un lance avant d'avoir bâti — était rouge, sur un
+   * dépôt dont le README promet que ces blocs « s'ignorent proprement quand le
+   * build est absent ». Les autres blocs tenaient la promesse ; celui-ci était
+   * le seul à lire dist/ hors d'un corps de test.
+   *
+   * La fonction n'est appelée que depuis un `it`, donc jamais quand le bloc est
+   * sauté. Elle est réévaluée à chaque test : quatre lectures de deux petits
+   * fichiers, contre une suite qui ne démarre pas.
+   */
+  const pages = () =>
+    config.billboards.map((board) => ({
+      board,
+      html: readDist(join('b', board.id, 'index.html')),
+    }));
 
   it('conserve l’empreinte complète en attribut, guillemets ou non', async () => {
-    for (const { board, html } of pages) {
+    for (const { board, html } of pages()) {
       expect(attributeValues(html, 'data-fingerprint')).toEqual([await computeFingerprint(board)]);
     }
   });
@@ -241,7 +267,7 @@ describe.skipIf(!DIST_PRESENT)('dist/b/<id>/ — empreintes après minification 
    * qui s'affiche parfaitement et ne correspond plus à rien.
    */
   it('conserve les espaces significatifs de l’empreinte lisible', async () => {
-    for (const { board, html } of pages) {
+    for (const { board, html } of pages()) {
       const readable = formatFingerprint(await computeFingerprint(board));
       expect(textOfClass(html, 'seal-hash')).toEqual([readable]);
       expect(readable).toMatch(/^[0-9A-F]{4}( [0-9A-F]{4}){3}$/);
@@ -249,14 +275,14 @@ describe.skipIf(!DIST_PRESENT)('dist/b/<id>/ — empreintes après minification 
   });
 
   it('garde l’attribut et le texte cohérents entre eux', async () => {
-    for (const { html } of pages) {
+    for (const { html } of pages()) {
       const [full] = attributeValues(html, 'data-fingerprint');
       expect(textOfClass(html, 'seal-hash')).toEqual([formatFingerprint(full)]);
     }
   });
 
   it('garde le lien de vérification vers le bon panneau', () => {
-    for (const { board, html } of pages) {
+    for (const { board, html } of pages()) {
       expect(html).toContain(`/verifier/#${board.id}`);
     }
   });

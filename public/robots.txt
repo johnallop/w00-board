@@ -36,4 +36,4 @@ Allow: /
 # /feed.xml       — flux RSS pour agrégateurs
 # /feed.json      — JSON Feed pour lecteurs modernes
 
-Sitemap: https://w00-board.pages.dev/sitemap.xml
+Sitemap: https://board.wooddyviat.com/sitemap.xml

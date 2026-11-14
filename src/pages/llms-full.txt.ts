@@ -126,7 +126,7 @@ CI/CD reconstruit et redéploie automatiquement, puis diffuse sur les réseaux.
 - Astro 4.x — framework web ultra-léger (rendu statique)
 - Cloudflare Pages — hébergement CDN mondial
 - Satori + Resvg — génération d'image OG au moment du build
-- Service Worker — accès hors-ligne (stale-while-revalidate)
+- Service Worker — accès hors-ligne (network-first, cache en repli)
 - Vitest — tests unitaires
 - GitHub Actions — CI/CD + broadcasting automatique
 

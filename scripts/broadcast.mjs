@@ -39,7 +39,7 @@ async function main() {
 
   let siteUrl;
   try {
-    siteUrl = validerSiteUrl(process.env.SITE_URL || 'https://w00-board.pages.dev');
+    siteUrl = validerSiteUrl(process.env.SITE_URL || 'https://board.wooddyviat.com');
   } catch (err) {
     console.error(err.message);
     process.exit(1);

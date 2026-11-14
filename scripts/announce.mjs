@@ -83,7 +83,7 @@ async function main() {
   const prevPath = prevIndex !== -1 ? args[prevIndex + 1] : null;
   const currPath = currIndex !== -1 ? args[currIndex + 1] : 'src/data/config.json';
 
-  const siteUrl = (process.env.SITE_URL || 'https://w00-board.pages.dev').replace(/\/$/, '');
+  const siteUrl = (process.env.SITE_URL || 'https://board.wooddyviat.com').replace(/\/$/, '');
   const commitSha = process.env.GITHUB_SHA;
 
   console.log(`🚀 Démarrage des pings d'annonce pour ${siteUrl}`);
@@ -143,7 +143,7 @@ async function main() {
     }
   }
 
-  let host = 'w00-board.pages.dev';
+  let host = 'board.wooddyviat.com';
   try {
     host = new URL(siteUrl).host;
   } catch (err) {

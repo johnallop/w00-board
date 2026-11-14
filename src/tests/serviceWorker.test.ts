@@ -717,25 +717,36 @@ describe.each(ARTEFACTS)('service worker exécuté — $nom', ({ source }) => {
  * Dans un dépôt dont tout l'appareillage prouve que le build est reproductible
  * et adressable par son contenu, la clé du cache était le dernier fait tenu par
  * la mémoire d'un humain. L'oublier ne casse rien de visible : ça sert
- * l'ancienne version. Et comme les navigations sont en stale-while-revalidate,
- * cette ancienne version est celle du premier affichage.
+ * l'ancienne version — hors ligne, et sur toute ressource hachée qu'une
+ * génération remplacée ne sert plus (les navigations, elles, sont passées en
+ * network-first au lot 8).
  *
  * Ce test ne vérifie pas la VALEUR du nom — ce serait le même fait tenu à la
  * main, recopié un cran plus loin. Il vérifie le COUPLAGE : deux commits
  * différents doivent donner deux noms différents.
+ *
+ * Les DEUX variables sont neutralisées, pas seulement GITHUB_SHA. Depuis que
+ * resolveCommit() lit aussi CF_PAGES_COMMIT_SHA (src/utils/commit.ts), n'en
+ * effacer qu'une laisserait l'autre décider du nom : le cas « hors CI » plus
+ * bas passerait au vert sur un runner Cloudflare pour la mauvaise raison, et
+ * les deux commits comparés ici pourraient produire le même nom.
  */
 describe('nom de cache dérivé du commit', () => {
+  const VARIABLES_DE_COMMIT = ['GITHUB_SHA', 'CF_PAGES_COMMIT_SHA'] as const;
+
   async function nomDeCachePour(sha: string | undefined): Promise<string> {
-    const avant = process.env.GITHUB_SHA;
+    const avant = VARIABLES_DE_COMMIT.map((nom) => [nom, process.env[nom]] as const);
     try {
-      if (sha === undefined) delete process.env.GITHUB_SHA;
-      else process.env.GITHUB_SHA = sha;
+      for (const [nom] of avant) delete process.env[nom];
+      if (sha !== undefined) process.env.GITHUB_SHA = sha;
       const sw = chargerSw(await getSw().text());
       await sw.installer();
       return sw.ouverts[0]!;
     } finally {
-      if (avant === undefined) delete process.env.GITHUB_SHA;
-      else process.env.GITHUB_SHA = avant;
+      for (const [nom, valeur] of avant) {
+        if (valeur === undefined) delete process.env[nom];
+        else process.env[nom] = valeur;
+      }
     }
   }
 
@@ -747,14 +758,38 @@ describe('nom de cache dérivé du commit', () => {
     expect(
       b,
       'Le nom de cache ne suit pas le commit : il faut penser à l’incrémenter à ' +
-        'la main, et l’oublier sert silencieusement l’ancienne version — au ' +
-        'premier affichage, puisque les navigations sont en stale-while-revalidate.'
+        'la main, et l’oublier sert silencieusement l’ancienne version — hors ' +
+        'ligne, et sur toute ressource hachée que la génération courante ne ' +
+        'sert plus.'
     ).not.toBe(a);
   });
 
+  it('suit CF_PAGES_COMMIT_SHA quand GITHUB_SHA est absente', async () => {
+    /*
+     * LE test qui aurait dû exister. Cloudflare Pages est le seul runner qui
+     * déploie réellement, et GITHUB_SHA n'y existe pas : le nom de cache y
+     * valait « w00-board-dev » à chaque version, donc ne tournait jamais. Le
+     * couplage vérifié plus haut était vrai en CI et faux en production.
+     */
+    const avant = process.env.GITHUB_SHA;
+    const avantCf = process.env.CF_PAGES_COMMIT_SHA;
+    try {
+      delete process.env.GITHUB_SHA;
+      process.env.CF_PAGES_COMMIT_SHA = 'c'.repeat(40);
+      const sw = chargerSw(await getSw().text());
+      await sw.installer();
+      expect(sw.ouverts[0]).toBe(`w00-board-${'c'.repeat(40)}`);
+    } finally {
+      if (avant === undefined) delete process.env.GITHUB_SHA;
+      else process.env.GITHUB_SHA = avant;
+      if (avantCf === undefined) delete process.env.CF_PAGES_COMMIT_SHA;
+      else process.env.CF_PAGES_COMMIT_SHA = avantCf;
+    }
+  });
+
   it('retombe sur « dev » hors CI, comme build.json', async () => {
-    // Même expression que build.json.ts : les deux manifestes doivent s'accorder
-    // par construction, pas par vigilance.
+    // Même fonction que build.json.ts (resolveCommit) : les deux manifestes
+    // doivent s'accorder par construction, pas par vigilance.
     expect(await nomDeCachePour(undefined)).toBe('w00-board-dev');
   });
 });
@@ -878,5 +913,54 @@ describe.skipIf(!DIST_PRESENT)('PRECACHE_ASSETS confronté à dist/', () => {
       .map((n) => `/fonts/${n}`);
     expect(livrees.length).toBeGreaterThan(0);
     expect(liste.filter((u) => u.startsWith('/fonts/'))).toEqual(livrees);
+  });
+});
+
+// ─────────── la doc publiée décrit-elle la stratégie réellement livrée ? ───────────
+
+/**
+ * Pourquoi cette garde existe.
+ *
+ * Le lot 8 a fait passer les navigations en network-first, et l'a écrit dans le
+ * commentaire de sw.js.ts. README.md, AGENTS.md et src/pages/llms-full.txt.ts
+ * ont continué d'annoncer `stale-while-revalidate` — pendant des mois, sans
+ * qu'aucun test ne puisse rougir : ils décrivaient un comportement, et rien ne
+ * confrontait la description au code.
+ *
+ * Le troisième est le pire des trois. `llms-full.txt` est SERVI, à des crawlers
+ * que public/robots.txt invite nommément (GPTBot, ClaudeBot, PerplexityBot…) :
+ * c'était le seul canal où l'erreur se propageait toute seule.
+ *
+ * La règle appliquée ici est volontairement brutale — la phrase est interdite
+ * dans ces trois fichiers, y compris pour raconter l'histoire. Une garde qui
+ * tolérerait les mentions « historiques » devrait deviner l'intention d'une
+ * phrase, et se tromperait dans les deux sens. Il reste toute la place voulue
+ * pour raconter le lot 8 ici, dans sw.js.ts, ou dans un commentaire de test.
+ */
+describe('la stratégie annoncée par la documentation publiée', () => {
+  const SURFACES_PUBLIEES = ['README.md', 'AGENTS.md', 'src/pages/llms-full.txt.ts'];
+
+  it('est bien network-first dans le service worker livré', async () => {
+    // L'ancre de la garde. Si le worker repassait un jour en
+    // stale-while-revalidate, c'est CE test qui doit rougir en premier — sans
+    // quoi les trois suivants interdiraient d'écrire la vérité.
+    const source = await getSw().text();
+    expect(source).toContain('Network-first');
+  });
+
+  it.each(SURFACES_PUBLIEES)('%s n’annonce plus stale-while-revalidate', (chemin) => {
+    const contenu = readFileSync(join(ROOT, chemin), 'utf8');
+    const lignes = contenu
+      .split(/\r?\n/)
+      .map((ligne, i) => ({ ligne, n: i + 1 }))
+      .filter(({ ligne }) => /stale[- ]while[- ]revalidate/i.test(ligne))
+      .map(({ ligne, n }) => `${chemin}:${n} — ${ligne.trim()}`);
+
+    expect(
+      lignes,
+      'Le service worker est en network-first depuis le lot 8. Une documentation ' +
+        'qui annonce l’ancienne stratégie n’est pas une imprécision : llms-full.txt ' +
+        'est servi aux crawlers IA, donc l’erreur s’y propage toute seule.'
+    ).toEqual([]);
   });
 });
