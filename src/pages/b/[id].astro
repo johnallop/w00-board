@@ -33,7 +33,7 @@ const displayDate = board.date
   ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(board.date))
   : undefined;
 
-const siteUrl = Astro.site?.toString().replace(/\/$/, '') || 'https://w00-board.pages.dev';
+const siteUrl = Astro.site?.toString().replace(/\/$/, '') || 'https://board.wooddyviat.com';
 const boardUrl = `${siteUrl}/b/${board.id}/`;
 const qrCodeSvg = generateQrCodeSvg(boardUrl, 140);
 

@@ -46,7 +46,7 @@ import { GET as getSw } from '../pages/sw.js';
  */
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
-const SITE = 'https://w00-board.pages.dev/';
+const SITE = 'https://board.wooddyviat.com/';
 
 // ── Couche 1 : scan statique ───────────────────────────────────────────────
 

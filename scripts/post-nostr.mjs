@@ -122,7 +122,7 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith
     message: MESSAGE,
     author: AUTHOR,
     hashtags: HASHTAGS || '#Billboard',
-    url: SITE_URL || 'https://w00-board.pages.dev',
+    url: SITE_URL || 'https://board.wooddyviat.com',
   }).catch((err) => {
     console.error(err.message);
     process.exit(1);

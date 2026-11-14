@@ -342,7 +342,7 @@ jobs:
         continue-on-error: true
         env:
           GITHUB_SHA: ${{ github.sha }}
-          SITE_URL: ${{ secrets.SITE_URL || 'https://w00-board.pages.dev' }}
+          SITE_URL: ${{ secrets.SITE_URL || 'https://board.wooddyviat.com' }}
         run: |
           if [ -f prev-config.json ]; then
             node scripts/announce.mjs --prev prev-config.json

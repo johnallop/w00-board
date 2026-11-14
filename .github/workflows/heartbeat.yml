@@ -18,7 +18,7 @@ jobs:
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       W3NAME_KEY: ${{ secrets.W3NAME_KEY }}
-      SITE_URL: ${{ secrets.SITE_URL || 'https://w00-board.pages.dev' }}
+      SITE_URL: ${{ secrets.SITE_URL || 'https://board.wooddyviat.com' }}
 
     steps:
       - uses: actions/checkout@v4

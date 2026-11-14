@@ -113,7 +113,7 @@ public/
 
 ## Déploiement — Cloudflare Pages
 
-Le site est **100 % statique** (`output: 'static'`). Cloudflare Pages surveille la branche `main` et déploie automatiquement chaque push sur **https://w00-board.pages.dev**. Le workflow `deploy.yml` sert de filet : tests, build et vérification que les fichiers critiques (`og-image.png`, flux, sitemap…) sont bien générés.
+Le site est **100 % statique** (`output: 'static'`). Cloudflare Pages surveille la branche `main` et déploie automatiquement chaque push sur **https://board.wooddyviat.com** (domaine personnalisé ; `w00-board.pages.dev` reste servi pour les liens déjà diffusés). Le workflow `deploy.yml` sert de filet : tests, build et vérification que les fichiers critiques (`og-image.png`, flux, sitemap…) sont bien générés.
 
 Les en-têtes de sécurité (CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy) sont définis dans `public/_headers`.
 
@@ -134,7 +134,7 @@ Une exception assumée : `frame-ancestors` ne figure que dans `public/_headers`.
 | `NOSTR_PRIVATE_KEY` | Nostr |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Telegram (Bot sendMessage API) |
 | `DISCORD_WEBHOOK_URL` | Discord (Webhook URL) |
-| `SITE_URL` | URL canonique (défaut : `https://w00-board.pages.dev`) |
+| `SITE_URL` | URL canonique (défaut : `https://board.wooddyviat.com`) |
 
 
 ## Miroir IPFS

@@ -36,7 +36,7 @@ import { nonConformingKeys, undeclaredPrefixes, unbalancedTags } from './helpers
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const DIST = join(ROOT, 'dist');
-const SITE = 'https://w00-board.pages.dev/';
+const SITE = 'https://board.wooddyviat.com/';
 
 /**
  * Exiger dist/ plutôt que se sauter en silence.

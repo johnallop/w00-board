@@ -2,7 +2,7 @@ import { defineConfig } from 'astro/config';
 import compress from '@playform/compress';
 import { precacheManifeste } from './src/utils/precacheManifeste';
 
-const SITE_URL = 'https://w00-board.pages.dev';
+const SITE_URL = 'https://board.wooddyviat.com';
 
 export default defineConfig({
   output: 'static',

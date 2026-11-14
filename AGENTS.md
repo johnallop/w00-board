@@ -29,7 +29,7 @@ Le projet est construit autour de :
 - **Quatre flux générés au build** : RSS (`feed.xml`), JSON Feed (`feed.json`), `llms.txt` et `llms-full.txt` pour les IA, plus `sitemap.xml` et `build.json`.
 - **Service Worker (PWA installable)** avec un manifeste (`manifest.webmanifest`), un précache posé à l’installation et une stratégie `network-first` — réseau d’abord, cache en repli — pour les navigations comme pour les sous-ressources. Le détail et la raison du choix sont dans `README.md`, section « Mode hors-ligne », et dans l’en-tête de `src/pages/sw.js.ts`.
 - **Tests unitaires** pour les règles de validation, d’alignement, de rotation et de diff de configuration.
-- **Cloudflare Pages** comme cible de déploiement (surveille `main`, déploie sur `w00-board.pages.dev`), avec compatibilité conservée pour tout hébergement statique.
+- **Cloudflare Pages** comme cible de déploiement (surveille `main`, déploie sur `w00-board.pages.dev`, servi sous le domaine `board.wooddyviat.com`), avec compatibilité conservée pour tout hébergement statique.
 - **Quatre workflows GitHub Actions** :
   - `deploy.yml` : tests, build, publication IPFS (Storacha + IPNS) et pings de découverte (IndexNow, WebSub, Wayback Machine).
   - `broadcast.yml` : diffusion automatique multi-protocoles (Mastodon, Bluesky, Nostr, Telegram, Discord) au changement de configuration, avec orchestrateur Node.js.

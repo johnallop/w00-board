@@ -72,7 +72,7 @@ export function validerSiteUrl(valeur) {
   try {
     u = new URL(valeur);
   } catch {
-    throw new Error(`SITE_URL : « ${valeur} » n'est pas une URL absolue valide (ex. https://w00-board.pages.dev)`);
+    throw new Error(`SITE_URL : « ${valeur} » n'est pas une URL absolue valide (ex. https://board.wooddyviat.com)`);
   }
   if (u.protocol !== 'https:' && u.protocol !== 'http:') {
     throw new Error(`SITE_URL : protocole « ${u.protocol} » refusé, seuls http et https sont diffusables`);
