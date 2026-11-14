@@ -156,7 +156,7 @@ jobs:
       # dès que ce job de build/test passe avec succès.
 
   # ── Miroir IPFS ───────────────────────────────────────────────────────────
-  # Pin du site sur Storacha + publication IPNS (nom stable k51... codé dans
+  # Pin du site sur Filebase + publication IPNS (nom stable k51... codé dans
   # src/data/ipfs.ts) + trace du CID sur la branche orpheline ipfs-history.
   # Secrets absents → skip propre avec log, jamais d'échec du déploiement.
   ipfs:
@@ -173,8 +173,6 @@ jobs:
     permissions:
       contents: write # push de CIDS.log sur la branche ipfs-history
     env:
-      W3_PRINCIPAL: ${{ secrets.W3_PRINCIPAL }}
-      W3_PROOF: ${{ secrets.W3_PROOF }}
       W3NAME_KEY: ${{ secrets.W3NAME_KEY }}
 
     steps:
@@ -182,10 +180,14 @@ jobs:
 
       - name: Vérifier la configuration du miroir
         id: guard
+        env:
+          FILEBASE_KEY: ${{ secrets.FILEBASE_KEY }}
+          FILEBASE_SECRET: ${{ secrets.FILEBASE_SECRET }}
+          FILEBASE_BUCKET: ${{ secrets.FILEBASE_BUCKET }}
         run: |
-          if [ -z "$W3_PRINCIPAL" ] || [ -z "$W3_PROOF" ]; then
+          if [ -z "$FILEBASE_KEY" ] || [ -z "$FILEBASE_SECRET" ] || [ -z "$FILEBASE_BUCKET" ]; then
             echo "configured=false" >> $GITHUB_OUTPUT
-            echo "⏭ Miroir IPFS non configuré — ajoutez les secrets W3_PRINCIPAL et W3_PROOF"
+            echo "⏭ Miroir IPFS non configuré — ajoutez les secrets FILEBASE_KEY, FILEBASE_SECRET et FILEBASE_BUCKET"
             echo "  (setup une fois : voir README, section « Miroir IPFS »)"
           else
             echo "configured=true" >> $GITHUB_OUTPUT
@@ -209,12 +211,13 @@ jobs:
           path: dist
 
       # Le CID est calculé LOCALEMENT avant tout upload : n'importe quel autre
-      # service de pinning (Pinata, Filebase, nœud Kubo) peut resservir le même
-      # CAR à l'identique — zéro verrouillage Storacha.
+      # service de pinning (Pinata, nœud Kubo…) peut resservir le même CAR à
+      # l'identique — zéro verrouillage fournisseur. C'est ce qui a rendu le
+      # passage de Storacha (fermé en 2026) à Filebase limité à une étape.
       #
       # --expect ferme la chaîne. Ce CAR doit porter exactement le CID calculé
       # dans build-and-test sur le dist/ testé ; sinon l'étape échoue AVANT
-      # w3 up, donc avant que le nom IPNS ne désigne un contenu que rien n'a
+      # l'envoi, donc avant que le nom IPNS ne désigne un contenu que rien n'a
       # validé. Ce qui se trouve ainsi couvert : l'aller-retour par l'artifact
       # GitHub, et une éventuelle divergence de version d'ipfs-car entre les deux
       # runners (package-lock.json la rend improbable, pas impossible).
@@ -228,27 +231,49 @@ jobs:
           CID_ATTENDU: ${{ needs.build-and-test.outputs.cid }}
         run: npm run check:cid -- --output w00.car --expect "$CID_ATTENDU"
 
-      # @storacha/cli remplace @web3-storage/w3cli, déprécié (« Web3.storage
-      # became storacha.network, please upgrade to @storacha/cli »).
-      # Équivalence vérifiée dans le code des deux paquets le 2026-11-14 :
-      #   - mêmes commandes : `space add <preuve>` et `up --car` ;
-      #   - même lecture de la preuve, CID.parse(…, base64) (storacha
-      #     index.js:342, w3cli index.js:266) : la délégation déjà stockée dans
-      #     W3_PROOF reste valide ;
-      #   - la clé se lit dans STORACHA_PRINCIPAL (lib.js:117) au lieu de
-      #     W3_PRINCIPAL : on y passe le MÊME secret, rien à recréer.
-      # Version figée : sans version, une publication compromise ou cassante du
-      # CLI s'exécuterait dans un job `contents: write` qui détient la clé.
-      - name: Épingler sur Storacha (storacha up)
+      # Épinglage sur Filebase, par son API S3 (filebase.com/docs/ipfs/pinning/pinning-files :
+      # endpoint s3.filebase.com, région us-east-1) :
+      # un CAR envoyé avec la métadonnée `import=car` est importé (son arbre,
+      # pas un fichier opaque) et le CID racine revient dans `x-amz-meta-cid`.
+      #
+      # Storacha, le service précédent, a fermé : up.storacha.network répond
+      # NXDOMAIN et storacha.network redirige vers un stockage S3 sans IPFS
+      # (constaté le 2026-11-14).
+      #
+      # Ce que l'étape vérifie, au lieu de croire l'envoi sur parole : le CID
+      # annoncé par Filebase doit être EXACTEMENT celui calculé ici sur les
+      # octets testés. Sinon échec, avant l'IPNS et avant CIDS.log, qui ne
+      # désigneront jamais un contenu différent de celui validé.
+      #
+      # Clé d'objet = <CID>.car : redéployer le même contenu ne crée pas de
+      # doublon, et chaque version reste épinglée (historique de CIDS.log).
+      # L'AWS CLI est préinstallée sur ubuntu-latest (2.40.0 sur l'image
+      # 24.04) : aucune installation de paquet dans ce job à droits d'écriture.
+      - name: Épingler sur Filebase (S3, import CAR)
         if: steps.guard.outputs.configured == 'true'
         env:
           CID: ${{ steps.pack.outputs.cid }}
-          STORACHA_PRINCIPAL: ${{ secrets.W3_PRINCIPAL }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.FILEBASE_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.FILEBASE_SECRET }}
+          AWS_DEFAULT_REGION: us-east-1
+          FILEBASE_BUCKET: ${{ secrets.FILEBASE_BUCKET }}
+        shell: bash
         run: |
-          npm install -g @storacha/cli@3.0.1
-          storacha space add "$W3_PROOF"
-          storacha up --car w00.car
-          echo "✓ Épinglé : https://${CID}.ipfs.w3s.link/"
+          ENDPOINT=https://s3.filebase.com
+          aws --endpoint-url "$ENDPOINT" s3 cp w00.car "s3://${FILEBASE_BUCKET}/${CID}.car" --metadata import=car --only-show-errors
+          # L'import peut ne pas être instantané : quelques relectures avant
+          # de conclure, jamais d'acceptation par défaut.
+          RECU=""
+          for essai in 1 2 3 4 5 6; do
+            RECU=$(aws --endpoint-url "$ENDPOINT" s3api head-object --bucket "$FILEBASE_BUCKET" --key "${CID}.car" --query 'Metadata.cid' --output text 2>/dev/null || true)
+            [ -n "$RECU" ] && [ "$RECU" != "None" ] && break
+            sleep 5
+          done
+          if [ "$RECU" != "$CID" ]; then
+            echo "::error::Filebase annonce le CID « ${RECU:-aucun} », attendu ${CID} — rien n'est publié plus loin."
+            exit 1
+          fi
+          echo "✓ Épinglé sur Filebase, CID vérifié : https://ipfs.filebase.io/ipfs/${CID}/"
 
       # IPNS peut échouer sans casser le pin : le fallback documenté reste
       # la branche ipfs-history (dernier CID connu). `continue-on-error` reste
@@ -324,10 +349,10 @@ jobs:
           {
             echo "### Miroir IPFS"
             echo "- CID : \`${CID}\`"
-            echo "- Direct : https://${CID}.ipfs.w3s.link/"
+            echo "- Direct : https://ipfs.filebase.io/ipfs/${CID}/"
             echo "- IPNS : https://dweb.link/ipns/k51qzi5uqu5djx9q0h131lbqfu69gldfkmq97vpo5g2b0kcmywo7t388uji933"
             echo "- Vérification IPNS : $IPNS_ETAT"
-            echo "- CID vérifié identique à celui des octets testés dans \`build-and-test\`."
+            echo "- CID vérifié identique à celui des octets testés dans \`build-and-test\`, et à celui annoncé par Filebase."
           } >> $GITHUB_STEP_SUMMARY
 
   # ── Pings de découverte ───────────────────────────────────────────────────
