@@ -9,7 +9,7 @@
  * ⚠️ Ne pas régénérer la clé (scripts/generate-w3name-key.mjs) : un nouveau
  * nom public casserait tous les liens déjà diffusés.
  */
-export const IPNS_NAME = 'k51qzi5uqu5djx9q0h131lbqfu69gldfkmq97vpo5g2b0kcmywo7t388uji933';
+export const IPNS_NAME = 'k51qzi5uqu5dleh5vrnk6lkatc4kq0oq4bn3s9esxcnu9adg7qp0o39uoiu3em';
 
 /** Passerelle publique principale (protocole natif : ipns://<IPNS_NAME>). */
 export const IPNS_GATEWAY_URL = `https://dweb.link/ipns/${IPNS_NAME}`;
