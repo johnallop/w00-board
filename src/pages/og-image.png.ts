@@ -22,10 +22,8 @@ export const GET: APIRoute = async () => {
       },
     });
   } catch (error) {
-    console.error("Erreur lors de la génération de l'image OG :", error);
-    return new Response(JSON.stringify({ error: 'Failed to generate image' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    // Relancer plutôt que répondre 500 : voir og/[id].png.ts — le build écrirait
+    // le JSON d'erreur sous le nom og-image.png sans échouer.
+    throw new Error('Génération de /og-image.png impossible', { cause: error });
   }
 };

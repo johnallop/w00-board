@@ -64,8 +64,10 @@ export async function GET(context: APIContext) {
     xmlns: XMLNS,
     items,
     customData: [
+      // Pas de <author> ici : RSS 2.0 ne le définit qu'au niveau <item>. Son
+      // équivalent de canal, <managingEditor>, exige une adresse e-mail, que
+      // ce panneau ne publie pas.
       '<language>fr</language>',
-      `<author>${escapeXml(first.author)}</author>`,
       '<ttl>60</ttl>',
       '<atom:link rel="hub" href="https://pubsubhubbub.appspot.com/"/>',
       `<atom:link rel="self" href="${new URL('/feed.xml', context.site!).toString()}" type="application/rss+xml"/>`,

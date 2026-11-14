@@ -24,6 +24,14 @@ export async function GET({ site }: APIContext) {
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>`,
+    // Pages utilitaires indexables (canonical et description propres). Sans
+    // date : rien dans la config ne date leur dernière modification, et
+    // inventer un lastmod serait le mensonge que ce fichier refuse ailleurs.
+    ...['/creer/', '/verifier/'].map((chemin) => `  <url>
+    <loc>${siteUrl}${chemin}</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>`),
     ...config.billboards.map((board) => `  <url>
     <loc>${siteUrl}/b/${board.id}/</loc>${board.date ? `
     <lastmod>${dayOf(board.date)}</lastmod>` : ''}
