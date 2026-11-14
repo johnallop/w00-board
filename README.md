@@ -194,7 +194,11 @@ Documentation réseau (exigée par `AGENTS.md`) :
 
 ## Mode hors-ligne
 
-Le Service Worker est **généré au build** par la route `src/pages/sw.js.ts` et servi à la racine (`/sw.js`). À l'installation il précharge la liste d'assets produite par le build (`/precache-assets.json`) ; les visites suivantes utilisent la stratégie **stale-while-revalidate** : réponse instantanée depuis le cache avec mise à jour silencieuse en arrière-plan.
+Le Service Worker est **généré au build** par la route `src/pages/sw.js.ts` et servi à la racine (`/sw.js`). À l'installation il précharge la liste d'assets produite par le build (`/precache-assets.json`) ; les visites suivantes utilisent la stratégie **network-first**, pour les navigations comme pour les sous-ressources : le réseau d'abord, le cache en repli.
+
+Pourquoi pas la stratégie inverse — servir le cache d'abord et revalider derrière — qui rendrait pourtant la page plus vite : un document et ses sous-ressources hachées forment une génération indivisible. `index.html` ne veut rien dire sans les `_astro/*.js` et `*.css` exacts qu'il nomme, et le build vide `dist/` à chaque fois — après un déploiement, ces noms-là n'existent plus, ni chez l'hébergeur ni dans le CAR publié sur IPFS. Rendre le document depuis le cache garantissait donc que ses sous-ressources partent en 404 : le premier affichage suivant chaque mise en ligne se faisait sans style ni script.
+
+Le prix est un aller-retour réseau avant le premier rendu. Hors ligne il n'est pas payé — `fetch()` échoue immédiatement et le cache prend le relais.
 
 > ⚠️ Ne jamais recréer `public/sw.js` : `public/` est recopié verbatim et le fichier masquerait la route, qui redeviendrait muette. `src/tests/serviceWorker.test.ts` interdit son retour.
 

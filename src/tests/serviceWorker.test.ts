@@ -915,3 +915,52 @@ describe.skipIf(!DIST_PRESENT)('PRECACHE_ASSETS confronté à dist/', () => {
     expect(liste.filter((u) => u.startsWith('/fonts/'))).toEqual(livrees);
   });
 });
+
+// ─────────── la doc publiée décrit-elle la stratégie réellement livrée ? ───────────
+
+/**
+ * Pourquoi cette garde existe.
+ *
+ * Le lot 8 a fait passer les navigations en network-first, et l'a écrit dans le
+ * commentaire de sw.js.ts. README.md, AGENTS.md et src/pages/llms-full.txt.ts
+ * ont continué d'annoncer `stale-while-revalidate` — pendant des mois, sans
+ * qu'aucun test ne puisse rougir : ils décrivaient un comportement, et rien ne
+ * confrontait la description au code.
+ *
+ * Le troisième est le pire des trois. `llms-full.txt` est SERVI, à des crawlers
+ * que public/robots.txt invite nommément (GPTBot, ClaudeBot, PerplexityBot…) :
+ * c'était le seul canal où l'erreur se propageait toute seule.
+ *
+ * La règle appliquée ici est volontairement brutale — la phrase est interdite
+ * dans ces trois fichiers, y compris pour raconter l'histoire. Une garde qui
+ * tolérerait les mentions « historiques » devrait deviner l'intention d'une
+ * phrase, et se tromperait dans les deux sens. Il reste toute la place voulue
+ * pour raconter le lot 8 ici, dans sw.js.ts, ou dans un commentaire de test.
+ */
+describe('la stratégie annoncée par la documentation publiée', () => {
+  const SURFACES_PUBLIEES = ['README.md', 'AGENTS.md', 'src/pages/llms-full.txt.ts'];
+
+  it('est bien network-first dans le service worker livré', async () => {
+    // L'ancre de la garde. Si le worker repassait un jour en
+    // stale-while-revalidate, c'est CE test qui doit rougir en premier — sans
+    // quoi les trois suivants interdiraient d'écrire la vérité.
+    const source = await getSw().text();
+    expect(source).toContain('Network-first');
+  });
+
+  it.each(SURFACES_PUBLIEES)('%s n’annonce plus stale-while-revalidate', (chemin) => {
+    const contenu = readFileSync(join(ROOT, chemin), 'utf8');
+    const lignes = contenu
+      .split(/\r?\n/)
+      .map((ligne, i) => ({ ligne, n: i + 1 }))
+      .filter(({ ligne }) => /stale[- ]while[- ]revalidate/i.test(ligne))
+      .map(({ ligne, n }) => `${chemin}:${n} — ${ligne.trim()}`);
+
+    expect(
+      lignes,
+      'Le service worker est en network-first depuis le lot 8. Une documentation ' +
+        'qui annonce l’ancienne stratégie n’est pas une imprécision : llms-full.txt ' +
+        'est servi aux crawlers IA, donc l’erreur s’y propage toute seule.'
+    ).toEqual([]);
+  });
+});
