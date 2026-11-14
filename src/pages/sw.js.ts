@@ -37,8 +37,15 @@ const RACINE = fileURLToPath(new URL('../../', import.meta.url));
  * Ce qu'on veut lisible hors ligne. C'est une décision éditoriale — quelles
  * pages valent d'être emportées — donc elle reste écrite à la main. Sa dérive
  * est rattrapée par la confrontation à dist/ dans serviceWorker.test.ts.
+ *
+ * Uniquement les URL que l'hébergeur sert en 200. Cloudflare Pages répond 308
+ * à `/live`, `/live/index.html` et `/index.html` (relevé par curl le
+ * 2026-11-14) : ces entrées stockaient une redirection sous une clé que
+ * personne ne demande, et `/live/` — la seule réellement visitée, et la cible
+ * de `start_url` — n'était jamais précachée. L'application installée ne
+ * démarrait donc pas hors ligne.
  */
-const PAGES = ['/', '/index.html', '/live', '/live/index.html'];
+const PAGES = ['/', '/live/'];
 const RESSOURCES = ['/llms.txt', '/favicon.svg', '/manifest.webmanifest'];
 
 /**
@@ -189,8 +196,8 @@ self.addEventListener('activate', (event) => {
  * d'une generation a un document qui appartient a une autre. On nomme donc
  * toujours le cache qu'on interroge.
  */
-function depuisLeCache(requete) {
-  return caches.open(CACHE_NAME).then((cache) => cache.match(requete));
+function depuisLeCache(requete, options) {
+  return caches.open(CACHE_NAME).then((cache) => cache.match(requete, options));
 }
 
 /**
@@ -235,7 +242,13 @@ self.addEventListener('fetch', (event) => {
           // site ne publie plus. On rend la reponse telle quelle.
           return reponse;
         })
-        .catch(() => depuisLeCache(event.request).then((cached) => cached || horsLigne(true)))
+        // ignoreSearch : les pages sont statiques, leur chaîne de requête
+        // (?source=pwa de start_url, ?dwell= et ?tag= de /live/) n'est lue que
+        // par le script client. Sans lui, /live/?source=pwa ne trouvait jamais
+        // la copie précachée sous /live/.
+        .catch(() =>
+          depuisLeCache(event.request, { ignoreSearch: true }).then((cached) => cached || horsLigne(true))
+        )
     );
   } else {
     // Network-first pour les assets statiques (JS, CSS, images).

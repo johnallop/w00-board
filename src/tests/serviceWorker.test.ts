@@ -132,8 +132,14 @@ class FauxCache {
     this.entrees.set(cle(r), reponse);
   }
 
-  async match(r: Requete | string): Promise<Response | undefined> {
-    return this.entrees.get(cle(r));
+  /** `ignoreSearch` reproduit l'option de l'API Cache : la chaîne de requête
+   *  est ignorée des deux côtés de la comparaison. */
+  async match(r: Requete | string, options?: { ignoreSearch?: boolean }): Promise<Response | undefined> {
+    if (!options?.ignoreSearch) return this.entrees.get(cle(r));
+    const sansRequete = (href: string) => href.split('?')[0];
+    const voulu = sansRequete(cle(r));
+    for (const [k, v] of this.entrees) if (sansRequete(k) === voulu) return v;
+    return undefined;
   }
 }
 
@@ -367,7 +373,7 @@ describe.each(ARTEFACTS)('service worker exécuté — $nom', ({ source }) => {
       const cache = sw.cache();
       expect(cache.entrees.has(cle(manquant))).toBe(false);
       expect(cache.entrees.size).toBe(cache.ajouts.length - 1);
-      expect(cache.entrees.has(cle('/index.html'))).toBe(true);
+      expect(cache.entrees.has(cle('/'))).toBe(true);
     });
 
     it('nomme l’entrée ignorée au lieu de la taire', async () => {
@@ -412,7 +418,7 @@ describe.each(ARTEFACTS)('service worker exécuté — $nom', ({ source }) => {
         const sw = chargerSw(source);
         await sw.installer();
 
-        expect(sw.cache().ajouts).toContain('/index.html');
+        expect(sw.cache().ajouts).toContain('/');
         expect(sw.cache().ajouts.some((a) => a.startsWith('/_astro/'))).toBe(false);
         expect(sw.avertissements.join(' ')).toContain('manifeste');
       });
@@ -424,7 +430,7 @@ describe.each(ARTEFACTS)('service worker exécuté — $nom', ({ source }) => {
         const sw = chargerSw(source, { reseau: reseauManifeste({ oups: true }) });
         await sw.installer();
 
-        expect(sw.cache().ajouts).toContain('/index.html');
+        expect(sw.cache().ajouts).toContain('/');
         /*
          * Le motif nomme la FAUTE, pas le symptôme — et c'est la seule chose
          * qui rende le garde Array.isArray observable. Sans lui, le résultat
@@ -450,7 +456,7 @@ describe.each(ARTEFACTS)('service worker exécuté — $nom', ({ source }) => {
         });
         await sw.installer();
 
-        expect(sw.cache().ajouts).toContain('/index.html');
+        expect(sw.cache().ajouts).toContain('/');
         expect(sw.avertissements.join(' ')).toContain('404');
       });
 
@@ -567,6 +573,19 @@ describe.each(ARTEFACTS)('service worker exécuté — $nom', ({ source }) => {
         'Le passage en network-first a emporté le hors-ligne avec lui : une ' +
           'page précachée doit rester lisible sans réseau.'
       ).toBe('corps de /');
+    });
+
+    it('démarre l’application installée hors ligne (start_url avec requête)', async () => {
+      /*
+       * start_url vaut /live/?source=pwa ; le précache range /live/. Sans
+       * ignoreSearch, la navigation de lancement ne trouvait jamais la copie
+       * et l'écran « Connexion perdue » s'affichait — le scénario kiosque.
+       */
+      const sw = chargerSw(source); // hors ligne
+      await sw.installer();
+
+      const e = sw.lancerFetch(requete('/live/?source=pwa', { mode: 'navigate' }));
+      expect(await (await e.reponse!)!.text()).toBe('corps de /live/');
     });
 
     /*
@@ -797,14 +816,17 @@ describe('nom de cache dérivé du commit', () => {
 // ─────────────────────── confrontation à dist/ ───────────────────────
 
 /**
- * Résout une URL précachée comme le ferait l'hébergeur statique : `/` et
- * `/live` désignent des fichiers `index.html`. Confronter les chemins bruts
- * échouerait sur des entrées pourtant correctes — et le test aurait été
- * neutralisé pour cette raison-là, pas pour la bonne.
+ * Résout une URL précachée comme le fait Cloudflare Pages : `/` et `/live/`
+ * désignent des fichiers `index.html` servis en 200, mais `/live`,
+ * `/live/index.html` et `/index.html` répondent 308 (relevé par curl le
+ * 2026-11-14). Une redirection n'est pas un fichier servi : la précacher range
+ * une réponse sous une clé que personne ne demande. L'ancienne version
+ * acceptait ces formes, et le défaut du mode hors ligne passait au vert.
  */
 function fichierServi(url: string): string | null {
   const chemin = url.replace(/^\//, '');
-  const candidats = chemin === '' ? ['index.html'] : [chemin, `${chemin}/index.html`];
+  if (/(^|\/)index\.html$/.test(chemin)) return null; // 308 vers le répertoire
+  const candidats = chemin === '' ? ['index.html'] : chemin.endsWith('/') ? [`${chemin}index.html`] : [chemin];
   for (const c of candidats) {
     const abs = join(DIST, c);
     if (existsSync(abs) && statSync(abs).isFile()) return c;
@@ -879,7 +901,10 @@ describe.skipIf(!DIST_PRESENT)('PRECACHE_ASSETS confronté à dist/', () => {
   it('la garde a des dents : un chemin inventé est signalé absent', () => {
     expect(fichierServi('/fonts/inter-900.woff2')).toBeNull();
     expect(fichierServi('/')).toBe('index.html');
-    expect(fichierServi('/live')).toBe('live/index.html');
+    expect(fichierServi('/live/')).toBe('live/index.html');
+    // Redirigés en 308 par Cloudflare Pages : ni l'un ni l'autre n'est servi.
+    expect(fichierServi('/live')).toBeNull();
+    expect(fichierServi('/index.html')).toBeNull();
   });
 
   it('la route et l’artefact minifié précachent la même liste', async () => {
