@@ -1,9 +1,17 @@
 import type { APIRoute } from 'astro';
 import config from '../data/config.json';
+import { validateConfig } from '../utils/validateConfig';
+import { libelleReseau } from '../utils/social';
 
 export const prerender = true;
 
 export const GET: APIRoute = async () => {
+  validateConfig(config);
+  const profils = config.social ?? [];
+  const sectionSuivre = profils.length > 0
+    ? `\n## Suivre le panneau\n\n${profils.map((p) => `- ${libelleReseau(p.network)} : ${p.url}`).join('\n')}\n`
+    : '';
+
   const allMessages = config.billboards.map(b => `> ${b.message}\n  — ${b.author}`).join('\n\n');
 
   // Jamais `new Date()` au build : la date affichée est celle de la dernière
@@ -22,7 +30,7 @@ export const GET: APIRoute = async () => {
 ${allMessages}
 
 **Dernière publication :** ${lastPublished}
-
+${sectionSuivre}
 ---
 
 ## FAQ
@@ -35,9 +43,13 @@ Chaque panneau a son propre message, auteur et tags.
 Dans \`src/data/config.json\` — tableau \`billboards[]\` dans un dépôt Git public.
 
 ### Comment ajouter ou modifier un message ?
-En éditant le fichier \`src/data/config.json\` et en poussant le commit.
+Depuis la page \`/creer/\` : le formulaire vérifie le panneau puis ouvre une
+proposition publique (issue GitHub). Un mainteneur l'approuve, une pull request
+l'ajoute à \`src/data/config.json\`, et rien n'est publié avant sa fusion.
+Le propriétaire du dépôt peut aussi éditer ce fichier directement.
 GitHub Actions reconstruit et redéploie automatiquement sur Cloudflare Pages,
-puis diffuse sur Mastodon, Bluesky et Nostr.
+puis diffuse sur les réseaux configurés (Mastodon, Bluesky, Nostr, Matrix,
+Misskey, ntfy, Telegram, Discord).
 
 ### Comment vérifier qu'une citation est authentique ?
 Chaque panneau porte une empreinte SHA-256 de son contenu publié.

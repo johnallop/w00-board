@@ -2,10 +2,13 @@
 import rawConfig from '../data/config.json';
 import { validateConfig } from '../utils/validateConfig';
 import { IPNS_NAME, IPNS_GATEWAY_URL, IPFS_HISTORY_URL } from '../data/ipfs';
+import { DEPOT_URL } from '../data/depot';
 import type { BillboardItem } from '../types/config';
+import { libelleReseau } from '../utils/social';
 
 validateConfig(rawConfig);
 const config = rawConfig;
+const profilsSociaux = config.social ?? [];
 
 interface Props {
   title?: string;
@@ -96,7 +99,8 @@ const jsonLdSchemas = board ? [
     "url": (Astro.site || Astro.url).toString(),
     "description": "Panneau d'affichage décentralisé diffusé sur Mastodon, Bluesky et Nostr.",
     "inLanguage": "fr",
-    "author": { "@type": "Person", "name": config.billboards[0].author }
+    "author": { "@type": "Person", "name": config.billboards[0].author },
+    ...(profilsSociaux.length > 0 ? { "sameAs": profilsSociaux.map((p) => p.url) } : {})
   },
   // 3. FAQ pour Featured Snippets et AEO
   {
@@ -140,6 +144,8 @@ const jsonLdSchemas = board ? [
     <!-- CSP via meta tag (complété par _headers pour Cloudflare Pages) -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- iOS n'utilise pas d'icône SVG pour l'écran d'accueil. -->
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="generator" content={Astro.generator} />
 
@@ -202,12 +208,33 @@ const jsonLdSchemas = board ? [
 
     {!hideFooter && (
       <footer class="site-footer">
+        {/*
+          rel="me" : c'est ce lien retour qui permet à Mastodon (et aux
+          vérificateurs IndieWeb) d'afficher le site comme « vérifié » sur le
+          profil. Il ne coûte rien et n'envoie aucune donnée.
+        */}
+        {profilsSociaux.length > 0 && (
+          <nav aria-label="Suivre le panneau" class="footer-social">
+            <ul>
+              {profilsSociaux.map((p) => (
+                <li>
+                  <a href={p.url} rel="me noopener">
+                    {p.label ?? libelleReseau(p.network)}
+                    {p.label && <span class="sr-only"> ({libelleReseau(p.network)})</span>}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )}
         <nav aria-label="Liens de permanence">
           <a href={IPNS_GATEWAY_URL} rel="noopener">Miroir IPFS</a>
           <span class="footer-sep" aria-hidden="true">·</span>
           <a href={IPFS_HISTORY_URL} rel="noopener">Historique des versions</a>
           <span class="footer-sep" aria-hidden="true">·</span>
-          <a href="https://github.com/johnallop/w00-board" rel="noopener">Source</a>
+          <a href={DEPOT_URL} rel="noopener">Source</a>
+          <span class="footer-sep" aria-hidden="true">·</span>
+          <a href="/creer/">Proposer un panneau</a>
         </nav>
         <p class="footer-note">
           Adresse décentralisée stable : <code>ipns://{IPNS_NAME}</code>
@@ -409,6 +436,27 @@ const jsonLdSchemas = board ? [
   .footer-sep {
     margin: 0 0.6rem;
     opacity: 0.5;
+  }
+
+  .footer-social ul {
+    list-style: none;
+    margin: 0 0 1rem;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+
+  /* Cibles de 44 px de haut : ce sont des liens isolés, souvent touchés au
+     doigt depuis l'aperçu d'un partage. */
+  .footer-social a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 0.9rem;
+    border: 1px solid rgba(125, 211, 252, 0.3);
+    border-radius: 100px;
   }
 
   .footer-note {
