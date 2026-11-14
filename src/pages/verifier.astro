@@ -338,13 +338,13 @@ const description =
     gap: 0.15rem;
   }
 
-  /* 0,45 d'alpha sur le fond #0f172a donnait 4,46:1 — sous le seuil AA de
-     4,5:1. L'écart est infime en nombre et invisible à l'œil, mais ce sont
-     des étiquettes en CAPITALES à 0.65rem : la casse et la petite taille
-     dégradent déjà la lisibilité, le contraste ne devrait pas s'y ajouter.
-     0,46 suffit à passer (4,63:1) ; on prend 0,58 pour de la marge. */
+  /* 0,45 d'alpha sur le fond #0f172a donnait 4,33:1 — sous le seuil AA de
+     4,5:1 (valeurs recalculées le 2026-11-14 ; ce commentaire annonçait 4,46
+     et un passage à 0,46, qui ne donne en réalité que 4,47:1). Ce sont des
+     étiquettes en CAPITALES de petite taille : la casse et la taille
+     dégradent déjà la lisibilité. 0,58 donne 6,38:1, avec de la marge. */
   .verify-fields dt {
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -448,7 +448,7 @@ const description =
 
   .verify-label {
     display: block;
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;

@@ -93,8 +93,17 @@ const sealSvg = generateSealSvg(fingerprint, accent, 96);
         </figcaption>
       </figure>
 
-      <div class="poster-qrcode-container" aria-label="QR Code de ce panneau">
-        <div class="qrcode-wrapper" id="qrcode-wrapper" set:html={qrCodeSvg} />
+      <div class="poster-qrcode-container">
+        {/* Le nom accessible vit sur le wrapper du SVG, avec role="img" : un
+            aria-label sur un <div> sans rôle est ignoré (ARIA l'interdit sur un
+            élément générique), et le SVG généré n'a ni <title> ni rôle. */}
+        <div
+          class="qrcode-wrapper"
+          id="qrcode-wrapper"
+          role="img"
+          aria-label={`QR code menant à ${boardUrl}`}
+          set:html={qrCodeSvg}
+        />
         <p class="qrcode-legend">Scannez pour partager ou afficher ce panneau</p>
         <div class="qrcode-downloads">
           <button
@@ -410,8 +419,11 @@ const sealSvg = generateSealSvg(fingerprint, accent, 96);
 
   .poster-date {
     font-size: 0.8rem;
-    /* α 0.45 → 0.46 : 4.46:1 sous le seuil AA, 4.63:1 au-dessus (fond #0f172a). */
-    color: rgba(248, 250, 252, 0.46);
+    /* α 0.5 sur #0f172a : 5,02:1, pixel composé mesuré dans Chrome le
+       2026-11-14. L'ancienne valeur 0.46 était annoncée à 4.63:1 ; mesurée,
+       elle donnait 4,45:1 — sous le seuil AA. validateConfig vérifie ce
+       plancher (ALPHA_SECONDAIRE_MIN) contre le fond configuré. */
+    color: rgba(248, 250, 252, 0.5);
     margin: 0;
   }
 
@@ -530,8 +542,9 @@ const sealSvg = generateSealSvg(fingerprint, accent, 96);
 
   .qrcode-legend {
     font-size: 0.75rem;
-    /* α 0.4 → 0.46 : 3.81:1 sous le seuil AA, 4.63:1 au-dessus (fond #0f172a). */
-    color: rgba(248, 250, 252, 0.46);
+    /* α 0.5 : 5,02:1 sur #0f172a (mesuré). 0.46 donnait 4,45:1, sous l'AA,
+       contrairement à ce qu'annonçait ce commentaire. */
+    color: rgba(248, 250, 252, 0.5);
     margin: 0;
   }
 
