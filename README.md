@@ -215,17 +215,19 @@ Le CID est calculé **localement** (`ipfs-car pack dist --no-wrap`) avant tout u
 
 ### Setup (une seule fois)
 
-1. **Storacha** (nécessite une vérification e-mail interactive — impossible en CI) :
+1. **Filebase** (compte créé à la main sur <https://filebase.com>) :
+
+   - créer un bucket de type **IPFS** (par exemple `w00-board`) ;
+   - dans *Access Keys*, relever la clé d'accès et la clé secrète ;
+   - créer les trois secrets GitHub (chaque commande demande la valeur, qui ne s'affiche pas) :
 
    ```bash
-   npm install -g @storacha/cli@3.0.1
-   storacha login vous@exemple.com          # cliquer le lien reçu par e-mail
-   storacha space create w00-board
-   storacha key create                       # → did:key:... (public) + clé privée
-   storacha delegation create <did:key:...> --base64
+   gh secret set FILEBASE_KEY --repo johnallop/w00-board
+   gh secret set FILEBASE_SECRET --repo johnallop/w00-board
+   gh secret set FILEBASE_BUCKET --repo johnallop/w00-board
    ```
 
-   Secrets GitHub à créer : `W3_PRINCIPAL` = la clé privée émise par `storacha key create`, `W3_PROOF` = la délégation base64. Les noms des secrets sont restés ceux de l'ancien CLI `w3` (déprécié) : une délégation déjà créée avec `w3` reste valide, les deux CLI la lisent de la même façon.
+   Le job envoie le CAR sur `s3.filebase.com` avec la métadonnée `import=car`, relit le CID annoncé par Filebase (`x-amz-meta-cid`) et échoue s'il diffère du CID calculé localement.
 
 2. **Clé IPNS (w3name)** :
 
@@ -239,10 +241,11 @@ Secrets absents → le job `ipfs` s'ignore proprement avec un log, le déploieme
 
 ### Documentation du service (exigée par `AGENTS.md`)
 
-- **Service** : [Storacha](https://storacha.network) (successeur de web3.storage), client `@storacha/cli` (version figée dans `deploy.yml`) et packer `ipfs-car` open source.
-- **Coût / quotas** : free tier ≈ 5 Go (`À vérifier` lors du setup) — le site fait < 5 Mo par snapshot, marge très large.
+- **Service** : [Filebase](https://filebase.com), via son API S3 (`s3.filebase.com`, AWS CLI préinstallée sur le runner, aucun paquet ajouté) et le packer `ipfs-car` open source. Storacha, utilisé jusqu'en novembre 2026, a fermé.
+- **Coût / quotas** (page tarifs consultée le 2026-11-14) : offre gratuite à 5 Go partagés, 10 Go de sortie IPFS et 500 fichiers épinglés ; offre Pro à 7,50 $/mois. Chaque déploiement d'un contenu nouveau épingle un CAR de plus : surveiller le compteur des 500 fichiers et supprimer les anciens CAR du bucket si besoin. Carte bancaire exigée ou non à l'inscription : `À vérifier`.
+- **Domaines contactés** : `s3.filebase.com` (envoi, depuis la CI) ; `ipfs.filebase.io` (passerelle publique de lecture).
 - **Données envoyées** : uniquement le contenu déjà public du site (`dist/`). Aucune donnée personnelle.
-- **Portabilité / stratégie de sortie** : le CID est calculé localement avant upload ; n'importe quel autre service de pinning (Pinata, Filebase) ou un nœud Kubo auto-hébergé peut resservir **le même CID à l'identique**. Changer de service = changer une seule commande d'upload dans le job.
+- **Portabilité / stratégie de sortie** : le CID est calculé localement avant upload ; n'importe quel autre service de pinning (Pinata…) ou un nœud Kubo auto-hébergé peut resservir **le même CID à l'identique**. Changer de service = changer une seule commande d'upload dans le job.
 - **Repli si w3name (IPNS) échoue** : le pin reste effectif et la branche `ipfs-history` donne toujours le dernier CID connu — l'étape IPNS est en `continue-on-error`.
 
 ## Analytics — Cloudflare Web Analytics
