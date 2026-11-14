@@ -1,0 +1,615 @@
+---
+import Layout from '../layouts/Layout.astro';
+import config from '../data/config.json';
+import { validateConfig } from '../utils/validateConfig';
+import { DEPOT_URL } from '../data/depot';
+import { LIMITES, LABEL_APPROBATION } from '../../scripts/lib/proposition.mjs';
+
+validateConfig(config);
+
+const { theme } = config;
+---
+
+<Layout
+  title="Proposer un panneau — W00-Board"
+  description="Composez votre message, vérifiez-le en direct et proposez-le au mur décentralisé W00-Board. Chaque proposition est relue avant publication."
+>
+  <div
+    class="creer"
+    style={`--bg: ${theme.backgroundColor}; --text: ${theme.textColor}; --accent: ${theme.accentColor}; --font: ${theme.fontFamily}`}
+  >
+    <header class="creer-entete">
+      <a class="creer-retour" href="/">← Le mur</a>
+      <h1>Proposer un panneau</h1>
+      <p class="creer-intro">
+        Composez votre message : l’aperçu et les vérifications se mettent à jour pendant la saisie.
+        Les règles appliquées sont celles du site lui-même — contraste lisible, identifiant unique.
+      </p>
+      <ol class="creer-etapes">
+        <li>Vous composez le panneau ici.</li>
+        <li>Vous l’envoyez comme proposition publique sur GitHub (compte gratuit requis).</li>
+        <li>Un mainteneur la relit ; s’il l’approuve, le panneau rejoint le mur et part sur les réseaux.</li>
+      </ol>
+    </header>
+
+    <noscript>
+      <p class="creer-sans-js">
+        Cette page vérifie le panneau dans votre navigateur et nécessite JavaScript. Sans lui, vous pouvez
+        <a href={`${DEPOT_URL}/issues/new`}>ouvrir une proposition directement sur GitHub</a>
+        en indiquant le message, la signature et les tags.
+      </p>
+    </noscript>
+
+    <main class="creer-grille">
+      <form class="creer-form" id="creer-form" novalidate>
+        <div class="champ">
+          <label for="champ-message">Message <span class="requis">(obligatoire)</span></label>
+          <textarea
+            id="champ-message"
+            name="message"
+            rows="3"
+            maxlength={LIMITES.message}
+            required
+            aria-describedby="aide-message"
+            placeholder="UN MESSAGE QUE PERSONNE NE PEUT MANQUER"
+          ></textarea>
+          <p class="aide" id="aide-message"><span id="compteur-message">0</span> / {LIMITES.message} caractères. Court se lit de loin.</p>
+        </div>
+
+        <div class="champ">
+          <label for="champ-author">Signature <span class="requis">(obligatoire)</span></label>
+          <input id="champ-author" name="author" type="text" maxlength={LIMITES.author} required />
+        </div>
+
+        <div class="champ">
+          <label for="champ-tags">Tags</label>
+          <input id="champ-tags" name="tags" type="text" aria-describedby="aide-tags" placeholder="Paix, Espoir" />
+          <p class="aide" id="aide-tags">Séparés par des virgules, {LIMITES.tags} au plus. Ils deviennent des hashtags à la diffusion.</p>
+        </div>
+
+        <fieldset class="champ champ-couleur">
+          <legend>Couleur d’accent</legend>
+          <div class="couleur-ligne">
+            <input id="champ-couleur" type="color" value={theme.accentColor} aria-label="Choisir la couleur d’accent" />
+            <label class="sr-only" for="champ-couleur-hex">Code hexadécimal de la couleur d’accent</label>
+            <input id="champ-couleur-hex" name="accentColor" type="text" value={theme.accentColor} maxlength="7" spellcheck="false" aria-describedby="aide-couleur" />
+          </div>
+          <p class="aide" id="aide-couleur">Contraste avec le fond : <strong id="ratio-couleur">—</strong> (4,5:1 minimum).</p>
+        </fieldset>
+
+        <div class="champ">
+          <label for="champ-id">Adresse du panneau</label>
+          <div class="id-ligne">
+            <span class="id-prefixe" aria-hidden="true">/b/</span>
+            <input id="champ-id" name="id" type="text" maxlength={LIMITES.id} spellcheck="false" aria-describedby="aide-id" />
+          </div>
+          <p class="aide" id="aide-id">Déduite du message ; lettres, chiffres et tirets.</p>
+        </div>
+
+        {/* Région préexistante au premier message : une région live insérée
+            avec son contenu n'est pas annoncée (cf. Layout.astro). */}
+        <p class="etat" id="creer-etat" role="status" aria-live="polite"></p>
+
+        <div class="actions">
+          <a class="bouton bouton-principal" id="proposer" aria-disabled="true" role="link" target="_blank" rel="noopener">
+            Proposer sur GitHub
+          </a>
+          <button class="bouton" id="copier" type="button" disabled>Copier le JSON</button>
+          <button class="bouton" id="telecharger" type="button" disabled>Télécharger config.json</button>
+        </div>
+        <p class="aide aide-actions">
+          La proposition est publique et liée à votre compte GitHub. « Télécharger config.json » sert au
+          propriétaire du dépôt, qui peut publier sans passer par la modération. Un mainteneur approuve une
+          proposition en posant le label <code>{LABEL_APPROBATION}</code>.
+        </p>
+      </form>
+
+      <section class="apercu" aria-labelledby="apercu-titre">
+        <h2 id="apercu-titre" class="apercu-titre">Aperçu</h2>
+        <div class="apercu-carte" id="apercu-carte">
+          <p class="apercu-message" id="apercu-message">Votre message</p>
+          <p class="apercu-auteur" id="apercu-auteur">— Signature</p>
+          <ul class="apercu-tags" id="apercu-tags" aria-label="Tags"></ul>
+        </div>
+      </section>
+    </main>
+  </div>
+</Layout>
+
+<script>
+  import rawConfig from '../data/config.json';
+  import { validateConfig } from '../utils/validateConfig';
+  import { DEPOT_URL } from '../data/depot';
+  import {
+    normaliserProposition,
+    ajouterPanneau,
+    urlIssue,
+    slugifier,
+  } from '../../scripts/lib/proposition.mjs';
+
+  type Proposition = ReturnType<typeof normaliserProposition>;
+
+  const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+  const champs = {
+    message: $<HTMLTextAreaElement>('champ-message'),
+    author: $<HTMLInputElement>('champ-author'),
+    tags: $<HTMLInputElement>('champ-tags'),
+    accentColor: $<HTMLInputElement>('champ-couleur-hex'),
+    id: $<HTMLInputElement>('champ-id'),
+  };
+  const couleur = $<HTMLInputElement>('champ-couleur');
+  const etat = $<HTMLParagraphElement>('creer-etat');
+  const proposer = $<HTMLAnchorElement>('proposer');
+  const copier = $<HTMLButtonElement>('copier');
+  const telecharger = $<HTMLButtonElement>('telecharger');
+  const ratio = $<HTMLElement>('ratio-couleur');
+  const carte = $<HTMLDivElement>('apercu-carte');
+
+  // L'id suit le message tant que la personne ne l'a pas tapé elle-même.
+  let idSaisiALaMain = false;
+  let courant: { panneau: Proposition; config: unknown } | null = null;
+
+  /** Date de publication sans millisecondes : la forme écrite dans config.json. */
+  const maintenant = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+  /*
+   * Les erreurs de validateConfig parlent du fichier (« config.json :
+   * "billboards[2].accentColor" … ») ; ici elles décrivent un formulaire.
+   * On retire le préfixe et l'index, le reste du message — valeur reçue,
+   * valeur attendue — est conservé tel quel.
+   */
+  function messagePourFormulaire(err: unknown): string {
+    const texte = err instanceof Error ? err.message : String(err);
+    return texte
+      .replace(/^config\.json : /, '')
+      .replace(/^Proposition : /, '')
+      .replace(/"billboards\[\d+\]\.(\w+)"/g, '"$1"');
+  }
+
+  /** Champ désigné par une erreur, pour poser aria-invalid au bon endroit. */
+  function champEnCause(texte: string): HTMLElement | null {
+    if (/"?accentColor"?|couleur|contraste/i.test(texte)) return champs.accentColor;
+    if (/"?message"?/.test(texte)) return champs.message;
+    if (/"?author"?/.test(texte)) return champs.author;
+    if (/tag/i.test(texte)) return champs.tags;
+    if (/"?id"?|identifiant/i.test(texte)) return champs.id;
+    return null;
+  }
+
+  function luminance(hex: string): number | null {
+    const m = /^#([0-9a-f]{6})$/i.exec(hex);
+    if (!m) return null;
+    const canaux = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255);
+    const [r, g, b] = canaux.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+
+  function afficherRatio(hex: string) {
+    const a = luminance(hex);
+    const b = luminance(rawConfig.theme.backgroundColor);
+    if (a === null || b === null) {
+      ratio.textContent = '—';
+      return;
+    }
+    const r = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    ratio.textContent = `${r.toFixed(2).replace('.', ',')}:1 ${r >= 4.5 ? '✓' : '✗ insuffisant'}`;
+  }
+
+  function lireTags(): string[] {
+    return champs.tags.value.split(',').map((t) => t.trim()).filter(Boolean);
+  }
+
+  function rendreApercu() {
+    const message = champs.message.value.trim();
+    $('apercu-message').textContent = message || 'Votre message';
+    $('apercu-auteur').textContent = `— ${champs.author.value.trim() || 'Signature'}`;
+    const liste = $('apercu-tags');
+    liste.replaceChildren(
+      ...lireTags().map((t) => {
+        const li = document.createElement('li');
+        li.textContent = `#${t.replace(/[#\s]+/g, '')}`;
+        return li;
+      })
+    );
+    const accent = champs.accentColor.value;
+    if (/^#[0-9a-f]{6}$/i.test(accent)) carte.style.setProperty('--carte-accent', accent);
+    $('compteur-message').textContent = String([...champs.message.value].length);
+  }
+
+  function activer(ok: boolean) {
+    copier.disabled = !ok;
+    telecharger.disabled = !ok;
+    proposer.setAttribute('aria-disabled', String(!ok));
+    if (ok && courant) {
+      proposer.href = urlIssue(DEPOT_URL, courant.panneau);
+    } else {
+      proposer.removeAttribute('href');
+    }
+  }
+
+  function verifier() {
+    if (!idSaisiALaMain) champs.id.value = champs.message.value.trim() ? slugifier(champs.message.value) : '';
+    rendreApercu();
+    afficherRatio(champs.accentColor.value);
+    Object.values(champs).forEach((c) => c.removeAttribute('aria-invalid'));
+
+    // Formulaire encore vierge : rien à reprocher, rien à proposer.
+    if (!champs.message.value.trim() && !champs.author.value.trim()) {
+      courant = null;
+      etat.textContent = '';
+      etat.dataset.etat = '';
+      activer(false);
+      return;
+    }
+
+    try {
+      const panneau = normaliserProposition({
+        id: champs.id.value.trim(),
+        message: champs.message.value,
+        author: champs.author.value,
+        tags: lireTags(),
+        accentColor: champs.accentColor.value.trim(),
+      });
+      // structuredClone : ajouterPanneau ne mute pas, mais validateConfig
+      // reçoit ainsi une donnée indépendante du module importé.
+      const candidat = ajouterPanneau(structuredClone(rawConfig), panneau, maintenant());
+      validateConfig(candidat);
+      courant = { panneau, config: candidat };
+      etat.textContent = `Panneau valide : il sera publié à l’adresse /b/${panneau.id}/ après approbation.`;
+      etat.dataset.etat = 'ok';
+      activer(true);
+    } catch (err) {
+      const texte = messagePourFormulaire(err);
+      courant = null;
+      etat.textContent = texte;
+      etat.dataset.etat = 'erreur';
+      champEnCause(texte)?.setAttribute('aria-invalid', 'true');
+      activer(false);
+    }
+  }
+
+  champs.id.addEventListener('input', () => {
+    idSaisiALaMain = champs.id.value.trim() !== '';
+  });
+  couleur.addEventListener('input', () => {
+    champs.accentColor.value = couleur.value;
+    verifier();
+  });
+  champs.accentColor.addEventListener('input', () => {
+    if (/^#[0-9a-f]{6}$/i.test(champs.accentColor.value)) couleur.value = champs.accentColor.value;
+  });
+  Object.values(champs).forEach((c) => c.addEventListener('input', verifier));
+
+  // Un lien sans href n'est pas activable ; on bloque aussi le clic au cas où
+  // un ancien href traînerait pendant une saisie invalide.
+  proposer.addEventListener('click', (e) => {
+    if (proposer.getAttribute('aria-disabled') === 'true') e.preventDefault();
+  });
+
+  copier.addEventListener('click', async () => {
+    if (!courant) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify({ ...courant.panneau, date: maintenant() }, null, 2));
+      etat.textContent = 'JSON du panneau copié dans le presse-papiers.';
+    } catch {
+      etat.textContent = 'Copie refusée par le navigateur : utilisez « Télécharger config.json ».';
+    }
+  });
+
+  telecharger.addEventListener('click', () => {
+    if (!courant) return;
+    const blob = new Blob([`${JSON.stringify(courant.config, null, 2)}\n`], { type: 'application/json' });
+    const lien = document.createElement('a');
+    lien.href = URL.createObjectURL(blob);
+    lien.download = 'config.json';
+    lien.click();
+    // Révocation différée : certains navigateurs lisent l'URL après le clic.
+    setTimeout(() => URL.revokeObjectURL(lien.href), 1000);
+  });
+
+  // Le navigateur peut restaurer des champs (retour arrière) : l'état doit suivre.
+  verifier();
+</script>
+
+<style>
+  .creer {
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font), system-ui, -apple-system, 'Segoe UI', sans-serif;
+    padding: 2rem clamp(1rem, 4vw, 3rem) 4rem;
+    box-sizing: border-box;
+  }
+
+  .creer-entete,
+  .creer-grille,
+  .creer-sans-js {
+    max-width: 72rem;
+    margin: 0 auto;
+  }
+
+  .creer-retour {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .creer-retour:hover {
+    text-decoration: underline;
+  }
+
+  h1 {
+    font-size: clamp(2rem, 1.4rem + 2.5vw, 3.25rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin: 0.5rem 0 0.75rem;
+  }
+
+  .creer-intro {
+    max-width: 46rem;
+    margin: 0 0 1rem;
+    line-height: 1.55;
+    color: rgba(248, 250, 252, 0.82);
+  }
+
+  .creer-etapes {
+    max-width: 46rem;
+    margin: 0 0 2rem;
+    padding-left: 1.25rem;
+    line-height: 1.6;
+    color: rgba(248, 250, 252, 0.82);
+  }
+
+  .creer-sans-js {
+    padding: 1rem;
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+    margin-bottom: 2rem;
+  }
+
+  .creer-sans-js a {
+    color: var(--accent);
+  }
+
+  .creer-grille {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 2.5rem;
+    align-items: start;
+  }
+
+  .creer-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .champ {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+  }
+
+  label,
+  legend {
+    font-weight: 600;
+    font-size: 0.95rem;
+    padding: 0;
+  }
+
+  .requis {
+    font-weight: 400;
+    font-size: 0.8rem;
+    color: rgba(248, 250, 252, 0.72);
+  }
+
+  /* Bordure à 0,45 d'alpha : 4,4:1 contre le fond, au-dessus des 3:1 exigés
+     pour les composants d'interface (WCAG 1.4.11). */
+  input[type='text'],
+  textarea {
+    font: inherit;
+    font-size: 1rem;
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(248, 250, 252, 0.45);
+    border-radius: 10px;
+    padding: 0.7rem 0.85rem;
+    min-height: 44px;
+    box-sizing: border-box;
+    width: 100%;
+  }
+
+  textarea {
+    resize: vertical;
+    line-height: 1.4;
+  }
+
+  input:focus-visible,
+  textarea:focus-visible,
+  .bouton:focus-visible,
+  .creer-retour:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  [aria-invalid='true'] {
+    border-color: #fca5a5;
+  }
+
+  .aide {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.45;
+    color: rgba(248, 250, 252, 0.72);
+  }
+
+  .aide code {
+    font-size: 0.8rem;
+  }
+
+  .couleur-ligne,
+  .id-ligne {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  input[type='color'] {
+    width: 3rem;
+    height: 44px;
+    padding: 2px;
+    border: 1px solid rgba(248, 250, 252, 0.45);
+    border-radius: 10px;
+    background: transparent;
+    cursor: pointer;
+    flex: 0 0 auto;
+  }
+
+  .id-prefixe {
+    font-family: ui-monospace, monospace;
+    color: rgba(248, 250, 252, 0.72);
+  }
+
+  #champ-id,
+  #champ-couleur-hex {
+    font-family: ui-monospace, monospace;
+  }
+
+  .etat {
+    margin: 0;
+    min-height: 1.5em;
+    font-size: 0.9rem;
+    line-height: 1.45;
+  }
+
+  /* L'état ne repose pas que sur la couleur : le texte dit « valide » ou
+     décrit l'erreur, la pastille ne fait que le doubler. */
+  .etat[data-etat='ok']::before {
+    content: '✓ ';
+    color: #86efac;
+  }
+
+  .etat[data-etat='erreur'] {
+    color: #fecaca;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .bouton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 0 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(248, 250, 252, 0.45);
+    border-radius: 100px;
+    cursor: pointer;
+    text-decoration: none;
+  }
+
+  .bouton-principal {
+    color: var(--bg);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .bouton:disabled,
+  .bouton[aria-disabled='true'] {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .apercu {
+    position: sticky;
+    top: 1.5rem;
+  }
+
+  .apercu-titre {
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(248, 250, 252, 0.72);
+    margin: 0 0 0.75rem;
+  }
+
+  .apercu-carte {
+    --carte-accent: var(--accent);
+    border-radius: 20px;
+    padding: clamp(1.5rem, 4vw, 2.5rem);
+    min-height: 16rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    background:
+      radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--carte-accent) 22%, transparent), transparent 60%),
+      rgba(15, 23, 42, 0.92);
+    border: 1px solid var(--carte-accent);
+  }
+
+  .apercu-message {
+    font-size: clamp(1.6rem, 1rem + 2.4vw, 2.75rem);
+    font-weight: 800;
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    margin: 0 0 1rem;
+    overflow-wrap: break-word;
+    text-wrap: balance;
+  }
+
+  .apercu-auteur {
+    margin: 0;
+    font-weight: 600;
+    color: var(--carte-accent);
+  }
+
+  .apercu-tags {
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .apercu-tags li {
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 100px;
+    border: 1px solid rgba(248, 250, 252, 0.2);
+    color: rgba(248, 250, 252, 0.8);
+  }
+
+  /* L'aperçu passe AVANT le formulaire sur mobile : on voit ce qu'on compose
+     sans défiler, et l'ordre de lecture DOM (formulaire d'abord) reste celui
+     du clavier et des lecteurs d'écran. */
+  @media (max-width: 860px) {
+    .creer-grille {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1.5rem;
+    }
+
+    .apercu {
+      position: static;
+      order: -1;
+    }
+  }
+</style>
