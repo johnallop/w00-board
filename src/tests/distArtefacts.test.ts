@@ -231,13 +231,32 @@ describe.skipIf(!DIST_PRESENT)('dist/feed.xml — après build', () => {
 });
 
 describe.skipIf(!DIST_PRESENT)('dist/b/<id>/ — empreintes après minification HTML', () => {
-  const pages = config.billboards.map((board) => ({
-    board,
-    html: readDist(join('b', board.id, 'index.html')),
-  }));
+  /*
+   * LECTURE DIFFÉRÉE, ET NON CALCULÉE DANS LE CORPS DU DESCRIBE.
+   *
+   * `describe.skipIf` marque les tests comme sautés ; il n'empêche pas le corps
+   * du describe de s'exécuter à la collecte. Un `readDist()` posé directement
+   * ici levait donc quand dist/ était absent, et faisait échouer la SUITE
+   * ENTIÈRE avant qu'aucun `skipIf` n'ait eu l'occasion de jouer.
+   *
+   * Conséquence : `npm test` seul — la commande que le README donne en premier,
+   * et la seule que quelqu'un lance avant d'avoir bâti — était rouge, sur un
+   * dépôt dont le README promet que ces blocs « s'ignorent proprement quand le
+   * build est absent ». Les autres blocs tenaient la promesse ; celui-ci était
+   * le seul à lire dist/ hors d'un corps de test.
+   *
+   * La fonction n'est appelée que depuis un `it`, donc jamais quand le bloc est
+   * sauté. Elle est réévaluée à chaque test : quatre lectures de deux petits
+   * fichiers, contre une suite qui ne démarre pas.
+   */
+  const pages = () =>
+    config.billboards.map((board) => ({
+      board,
+      html: readDist(join('b', board.id, 'index.html')),
+    }));
 
   it('conserve l’empreinte complète en attribut, guillemets ou non', async () => {
-    for (const { board, html } of pages) {
+    for (const { board, html } of pages()) {
       expect(attributeValues(html, 'data-fingerprint')).toEqual([await computeFingerprint(board)]);
     }
   });
@@ -248,7 +267,7 @@ describe.skipIf(!DIST_PRESENT)('dist/b/<id>/ — empreintes après minification 
    * qui s'affiche parfaitement et ne correspond plus à rien.
    */
   it('conserve les espaces significatifs de l’empreinte lisible', async () => {
-    for (const { board, html } of pages) {
+    for (const { board, html } of pages()) {
       const readable = formatFingerprint(await computeFingerprint(board));
       expect(textOfClass(html, 'seal-hash')).toEqual([readable]);
       expect(readable).toMatch(/^[0-9A-F]{4}( [0-9A-F]{4}){3}$/);
@@ -256,14 +275,14 @@ describe.skipIf(!DIST_PRESENT)('dist/b/<id>/ — empreintes après minification 
   });
 
   it('garde l’attribut et le texte cohérents entre eux', async () => {
-    for (const { html } of pages) {
+    for (const { html } of pages()) {
       const [full] = attributeValues(html, 'data-fingerprint');
       expect(textOfClass(html, 'seal-hash')).toEqual([formatFingerprint(full)]);
     }
   });
 
   it('garde le lien de vérification vers le bon panneau', () => {
-    for (const { board, html } of pages) {
+    for (const { board, html } of pages()) {
       expect(html).toContain(`/verifier/#${board.id}`);
     }
   });
