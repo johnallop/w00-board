@@ -5,6 +5,14 @@ import { IPNS_NAME, IPNS_GATEWAY_URL, IPFS_HISTORY_URL } from '../data/ipfs';
 import { DEPOT_URL } from '../data/depot';
 import type { BillboardItem } from '../types/config';
 import { libelleReseau } from '../utils/social';
+import WooddyviatSeal from '../components/WooddyviatSeal.astro';
+// DA WOODDYVIAT (copie de wooddyviat-site/src/app/wooddyviat.css) : jetons de l'habillage
+// (pied de page, bannière). Les panneaux gardent le thème de config.json.
+import '../styles/wooddyviat.css';
+
+// Fond du thème sous les pages : la DA pose un fond clair par défaut sur body (@layer base),
+// que ce style en ligne remplace.
+const bodyStyle = `background-color: ${rawConfig.theme.backgroundColor}`;
 
 validateConfig(rawConfig);
 const config = rawConfig;
@@ -203,7 +211,7 @@ const jsonLdSchemas = board ? [
          La CSP ci-dessus autorise déjà static.cloudflareinsights.com et cloudflareinsights.com.
          Documentation réseau complète : README, section Analytics. -->
   </head>
-  <body>
+  <body style={bodyStyle}>
     <slot />
 
     {!hideFooter && (
@@ -238,6 +246,12 @@ const jsonLdSchemas = board ? [
         </nav>
         <p class="footer-note">
           Adresse décentralisée stable : <code>ipns://{IPNS_NAME}</code>
+        </p>
+        <p class="footer-marque">
+          <a href="https://wooddyviat.com" rel="noopener">
+            <WooddyviatSeal id="wv-foot" class="footer-marque__sceau" />
+            <span>Un projet <strong>WOODDYVIAT</strong></span>
+          </a>
         </p>
       </footer>
     )}
@@ -334,6 +348,22 @@ const jsonLdSchemas = board ? [
     font-style: normal;
     font-display: swap;
   }
+  /* Polices de la DA WOODDYVIAT (SIL Open Font License, sous-ensemble latin de Google Fonts),
+     pour l'habillage seulement : pas de préchargement, le message du panneau reste en Inter. */
+  @font-face {
+    font-family: 'Montserrat';
+    src: url('/fonts/montserrat-700.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Work Sans';
+    src: url('/fonts/work-sans-400.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
 
   html, body {
     margin: 0;
@@ -407,30 +437,80 @@ const jsonLdSchemas = board ? [
 </style>
 
 <style>
+  /*
+   * Habillage DA WOODDYVIAT (docs/charte.md du dépôt wooddyviat-site) : bande pétrole foncé avec
+   * filet or, texte Work Sans, liens clairs soulignés qui passent à l'or au survol. Contrastes de
+   * la charte : --on-ink 12,81:1 et --on-ink-muted 8,52:1 sur --ink, or 5,70:1.
+   */
   .site-footer {
     padding: 2rem 1.5rem 2.5rem;
     text-align: center;
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Work Sans', system-ui, sans-serif;
     font-size: 0.85rem;
-    color: rgba(248, 250, 252, 0.72);
-    background: #0f172a;
-    border-top: 1px solid rgba(248, 250, 252, 0.08);
+    color: var(--on-ink-muted);
+    background: var(--ink);
+    border-top: 2px solid var(--gold);
   }
 
   .site-footer a {
-    color: #7dd3fc;
-    text-decoration: none;
+    color: var(--on-ink);
+    text-decoration: underline;
+    text-decoration-color: rgba(195, 214, 219, 0.45);
+    text-underline-offset: 3px;
+    transition: color 200ms var(--wv-ease), text-decoration-color 200ms var(--wv-ease);
   }
 
   .site-footer a:hover,
   .site-footer a:focus-visible {
-    text-decoration: underline;
+    color: var(--gold);
+    text-decoration-color: currentColor;
   }
 
   .site-footer a:focus-visible {
-    outline: 2px solid #7dd3fc;
+    outline: 2px solid var(--gold);
     outline-offset: 3px;
     border-radius: 2px;
+  }
+
+  .footer-marque {
+    margin: 1.5rem 0 0;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--ink-line);
+  }
+
+  .site-footer .footer-marque a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 44px;
+    text-decoration: none;
+    color: var(--on-ink-muted);
+  }
+
+  /* « Un projet WOODDYVIAT » sur une ligne : l'élément flexible se réduisait à sa largeur
+     minimale et coupait la mention en deux. */
+  .footer-marque a > span {
+    white-space: nowrap;
+  }
+
+  .footer-marque strong {
+    font-family: 'Montserrat', system-ui, sans-serif;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--on-ink);
+  }
+
+  .site-footer .footer-marque a:hover strong,
+  .site-footer .footer-marque a:focus-visible strong {
+    color: var(--gold);
+  }
+
+  /* :global() : le style scopé de ce gabarit ne s'applique pas au <svg> rendu par le composant
+     WooddyviatSeal, qui porte la portée de son propre fichier. */
+  .footer-marque :global(.footer-marque__sceau) {
+    width: 2.25rem;
+    height: 2.25rem;
+    flex: 0 0 auto;
   }
 
   .footer-sep {
@@ -455,20 +535,26 @@ const jsonLdSchemas = board ? [
     align-items: center;
     min-height: 44px;
     padding: 0 0.9rem;
-    border: 1px solid rgba(125, 211, 252, 0.3);
+    border: 1px solid var(--ink-line);
     border-radius: 100px;
+    text-decoration: none;
+  }
+
+  .footer-social a:hover,
+  .footer-social a:focus-visible {
+    border-color: var(--gold);
   }
 
   .footer-note {
     margin: 0.75rem 0 0;
     font-size: 0.75rem;
-    color: rgba(248, 250, 252, 0.55);
+    color: var(--on-ink-muted);
   }
 
   .footer-note code {
     font-size: 0.75rem;
     overflow-wrap: anywhere;
-    color: rgba(248, 250, 252, 0.72);
+    color: var(--on-ink);
   }
 
   /*
@@ -496,11 +582,11 @@ const jsonLdSchemas = board ? [
     align-items: center;
     gap: 0.75rem;
     padding: 0.7rem 0.75rem 0.7rem 1rem;
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Work Sans', system-ui, sans-serif;
     font-size: 0.85rem;
-    color: rgba(248, 250, 252, 0.92);
-    background: #0f172a;
-    border: 1px solid rgba(125, 211, 252, 0.35);
+    color: var(--on-ink);
+    background: var(--ink);
+    border: 1px solid var(--gold);
     border-radius: 10px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   }
@@ -520,8 +606,9 @@ const jsonLdSchemas = board ? [
     flex: 0 0 auto;
     padding: 0.4rem 0.8rem;
     font: inherit;
-    color: #0f172a;
-    background: #7dd3fc;
+    font-weight: 600;
+    color: var(--ink-deep);
+    background: var(--gold);
     border: 0;
     border-radius: 6px;
     cursor: pointer;
@@ -537,7 +624,7 @@ const jsonLdSchemas = board ? [
     font: inherit;
     font-size: 1.1rem;
     line-height: 1;
-    color: rgba(248, 250, 252, 0.72);
+    color: var(--on-ink-muted);
     background: transparent;
     border: 0;
     border-radius: 6px;
@@ -546,7 +633,7 @@ const jsonLdSchemas = board ? [
 
   .sw-maj__bouton:focus-visible,
   .sw-maj__ignorer:focus-visible {
-    outline: 2px solid #7dd3fc;
+    outline: 2px solid var(--gold);
     outline-offset: 3px;
   }
 </style>

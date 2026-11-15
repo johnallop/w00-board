@@ -1,0 +1,151 @@
+/*
+ * DA WOODDYVIAT : jetons de couleur et animations communs à tous les sites sous wooddyviat.com.
+ * Source de vérité : ce fichier, dans le dépôt wooddyviat-site, décrit par docs/charte.md.
+ * Il se copie tel quel dans les autres dépôts ; ne pas le modifier ailleurs qu'ici.
+ * Aucune dépendance : CSS pur, utilisable avec ou sans Tailwind.
+ */
+
+/* Palette du logo : pétrole #0F4C5C et or #D9A441. L'or ne porte pas de texte sur fond clair
+   (contraste 2,25:1) : on y prend --gold-text, plus foncé. */
+:root {
+  --background: #ffffff;
+  --foreground: #14232a;
+  --muted: #4b5d63;
+  --surface: #f3f6f7;
+  --line: #d6e0e2;
+  --brand: #0f4c5c;
+  --brand-contrast: #ffffff;
+  --gold: #d9a441;
+  --gold-text: #7a5a14;
+  --wordmark: #0f4c5c;
+  /* Bandes pétrole foncé (en-têtes de page, appel au contact), identiques dans les deux thèmes. */
+  --ink: #0b3742;
+  --ink-deep: #072a33;
+  --on-ink: #ffffff;
+  --on-ink-muted: #c3d6db;
+  --ink-line: #2a5e6b;
+  /* Courbe commune des animations : départ vif, arrivée douce. */
+  --wv-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* Contrôles natifs (radios, cases, calendrier, barres de défilement) au thème du système, et
+     cochés en pétrole plutôt qu'en bleu du navigateur. */
+  color-scheme: light dark;
+  accent-color: var(--brand);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a1c21;
+    --foreground: #e6eef0;
+    --muted: #a7b9be;
+    --surface: #10282f;
+    --line: #23434b;
+    --brand: #8cc3d1;
+    --brand-contrast: #0a1c21;
+    --gold: #d9a441;
+    --gold-text: #e2ba6f;
+    --wordmark: #e6eef0;
+  }
+}
+
+/* Couche « base » (CSS standard, partagée avec Tailwind) : une classe posée sur body, comme bg-ink
+   sur la page 404, l'emporte sur ces valeurs par défaut. Hors couche, elles l'écraseraient. */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+  }
+}
+
+@keyframes wv-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.6em);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+@keyframes wv-float {
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes wv-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Titre mot à mot : --i est le rang du mot. */
+.wv-word {
+  display: inline-block;
+  animation: wv-rise 0.8s var(--wv-ease) both;
+  animation-delay: calc(var(--i) * 70ms + 120ms);
+}
+
+/* Bloc qui entre au chargement, après --wv-delay. */
+.wv-enter {
+  animation: wv-rise 0.9s var(--wv-ease) both;
+  animation-delay: var(--wv-delay, 0ms);
+}
+
+.wv-float {
+  animation: wv-float 7s ease-in-out infinite;
+}
+
+.wv-spin {
+  animation: wv-spin 60s linear infinite;
+}
+
+/* Apparition au défilement (composant Reveal) : masqué seulement une fois armé par le script. */
+.wv-reveal {
+  transition:
+    opacity 0.8s var(--wv-ease),
+    transform 0.8s var(--wv-ease);
+  transition-delay: var(--wv-delay, 0ms);
+}
+
+.wv-reveal[data-armed]:not([data-shown]) {
+  opacity: 0;
+  transform: translateY(28px);
+}
+
+/* Filet doré qui se trace quand son bloc apparaît. */
+.wv-line {
+  transform-origin: left;
+  transition: transform 1.1s var(--wv-ease);
+  transition-delay: calc(var(--wv-delay, 0ms) + 250ms);
+}
+
+.wv-reveal[data-armed]:not([data-shown]) .wv-line {
+  transform: scaleX(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wv-word,
+  .wv-enter,
+  .wv-float,
+  .wv-spin {
+    animation: none;
+  }
+
+  .wv-reveal,
+  .wv-line {
+    transition: none;
+  }
+}
