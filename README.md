@@ -207,8 +207,8 @@ Puis **Settings → Actions → General → « Allow GitHub Actions to create an
 
 À chaque push sur `main`, le job `ipfs` de `deploy.yml` épingle le build sur IPFS et met à jour un pointeur IPNS **stable** :
 
-- **Adresse stable** : `ipns://k51qzi5uqu5djx9q0h131lbqfu69gldfkmq97vpo5g2b0kcmywo7t388uji933`
-- **Passerelle** : <https://dweb.link/ipns/k51qzi5uqu5djx9q0h131lbqfu69gldfkmq97vpo5g2b0kcmywo7t388uji933> (secours : `w3s.link`)
+- **Adresse stable** : `ipns://k51qzi5uqu5dleh5vrnk6lkatc4kq0oq4bn3s9esxcnu9adg7qp0o39uoiu3em`
+- **Passerelle** : <https://dweb.link/ipns/k51qzi5uqu5dleh5vrnk6lkatc4kq0oq4bn3s9esxcnu9adg7qp0o39uoiu3em> (secours : `w3s.link`)
 - **Historique public des CID** : branche [`ipfs-history`](https://github.com/johnallop/w00-board/tree/ipfs-history) (`CIDS.log`, hors `main`)
 
 Le CID est calculé **localement** (`ipfs-car pack dist --no-wrap`) avant tout upload : le contenu est vérifiable et portable indépendamment du service de pinning.

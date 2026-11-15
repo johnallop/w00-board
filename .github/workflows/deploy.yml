@@ -240,10 +240,18 @@ jobs:
       # NXDOMAIN et storacha.network redirige vers un stockage S3 sans IPFS
       # (constaté le 2026-11-14).
       #
-      # Ce que l'étape vérifie, au lieu de croire l'envoi sur parole : le CID
-      # annoncé par Filebase doit être EXACTEMENT celui calculé ici sur les
-      # octets testés. Sinon échec, avant l'IPNS et avant CIDS.log, qui ne
-      # désigneront jamais un contenu différent de celui validé.
+      # Ce que l'étape vérifie, au lieu de croire l'envoi sur parole, par deux
+      # preuves dans cet ordre :
+      #  1. le CID annoncé par Filebase (métadonnée `cid`) doit être EXACTEMENT
+      #     celui calculé ici ; un CID différent est un échec immédiat ;
+      #  2. si la métadonnée n'apparaît pas, la passerelle Filebase doit servir
+      #     sous ce CID un build.json portant le commit déployé. Un CID étant
+      #     l'empreinte du contenu, seule cette version du site peut répondre.
+      # Le recours (2) vient du premier run réel (c32f834, 2026-11-14) : CAR
+      # importé et servi par ipfs.filebase.io, mais `cid` toujours absent de
+      # head-object après 30 s. Les métadonnées reçues sont alors affichées,
+      # pour que le log dise si elles arrivent plus tard ou sous un autre nom.
+      # Aucune preuve → échec, avant l'IPNS et avant CIDS.log.
       #
       # Clé d'objet = <CID>.car : redéployer le même contenu ne crée pas de
       # doublon, et chaque version reste épinglée (historique de CIDS.log).
@@ -251,6 +259,7 @@ jobs:
       # 24.04) : aucune installation de paquet dans ce job à droits d'écriture.
       - name: Épingler sur Filebase (S3, import CAR)
         if: steps.guard.outputs.configured == 'true'
+        id: pin
         env:
           CID: ${{ steps.pack.outputs.cid }}
           AWS_ACCESS_KEY_ID: ${{ secrets.FILEBASE_KEY }}
@@ -261,19 +270,33 @@ jobs:
         run: |
           ENDPOINT=https://s3.filebase.com
           aws --endpoint-url "$ENDPOINT" s3 cp w00.car "s3://${FILEBASE_BUCKET}/${CID}.car" --metadata import=car --only-show-errors
-          # L'import peut ne pas être instantané : quelques relectures avant
-          # de conclure, jamais d'acceptation par défaut.
+          # Preuve 1 : métadonnée `cid`, relue jusqu'à 3 min (18 × 10 s).
           RECU=""
-          for essai in 1 2 3 4 5 6; do
+          for essai in $(seq 1 18); do
             RECU=$(aws --endpoint-url "$ENDPOINT" s3api head-object --bucket "$FILEBASE_BUCKET" --key "${CID}.car" --query 'Metadata.cid' --output text 2>/dev/null || true)
             [ -n "$RECU" ] && [ "$RECU" != "None" ] && break
-            sleep 5
+            RECU=""
+            sleep 10
           done
-          if [ "$RECU" != "$CID" ]; then
-            echo "::error::Filebase annonce le CID « ${RECU:-aucun} », attendu ${CID} — rien n'est publié plus loin."
+          if [ -n "$RECU" ]; then
+            if [ "$RECU" != "$CID" ]; then
+              echo "::error::Filebase annonce le CID « ${RECU} », attendu ${CID} — rien n'est publié plus loin."
+              exit 1
+            fi
+            echo "preuve=CID annoncé par Filebase identique" >> "$GITHUB_OUTPUT"
+            echo "✓ Épinglé sur Filebase, CID vérifié : https://ipfs.filebase.io/ipfs/${CID}/"
+            exit 0
+          fi
+          echo "::warning::Métadonnée cid absente après 3 min. Métadonnées reçues :"
+          aws --endpoint-url "$ENDPOINT" s3api head-object --bucket "$FILEBASE_BUCKET" --key "${CID}.car" --query 'Metadata' --output json || true
+          # Preuve 2 : la passerelle sert ce CID, et c'est bien ce déploiement.
+          COMMIT_SERVI=$(curl -sf --max-time 60 --retry 3 --retry-delay 10 "https://ipfs.filebase.io/ipfs/${CID}/build.json" | jq -r '.commit' || true)
+          if [ "$COMMIT_SERVI" != "$GITHUB_SHA" ]; then
+            echo "::error::Ni métadonnée cid, ni build.json servi sous ${CID} pour ${GITHUB_SHA} (reçu « ${COMMIT_SERVI:-rien} ») — rien n'est publié plus loin."
             exit 1
           fi
-          echo "✓ Épinglé sur Filebase, CID vérifié : https://ipfs.filebase.io/ipfs/${CID}/"
+          echo "preuve=build.json du commit servi par ipfs.filebase.io sous ce CID" >> "$GITHUB_OUTPUT"
+          echo "✓ Épinglé sur Filebase, servi sous ce CID : https://ipfs.filebase.io/ipfs/${CID}/"
 
       # IPNS peut échouer sans casser le pin : le fallback documenté reste
       # la branche ipfs-history (dernier CID connu). `continue-on-error` reste
@@ -339,6 +362,7 @@ jobs:
           CID: ${{ steps.pack.outputs.cid }}
           IPNS_VERIFIED: ${{ steps.ipns.outputs.verified }}
           IPNS_RESUME: ${{ steps.ipns.outputs.resume }}
+          PIN_PREUVE: ${{ steps.pin.outputs.preuve }}
         run: |
           case "$IPNS_VERIFIED" in
             true)    IPNS_ETAT="✅ nom relu après publication — $IPNS_RESUME" ;;
@@ -350,9 +374,10 @@ jobs:
             echo "### Miroir IPFS"
             echo "- CID : \`${CID}\`"
             echo "- Direct : https://ipfs.filebase.io/ipfs/${CID}/"
-            echo "- IPNS : https://dweb.link/ipns/k51qzi5uqu5djx9q0h131lbqfu69gldfkmq97vpo5g2b0kcmywo7t388uji933"
+            echo "- IPNS : https://dweb.link/ipns/k51qzi5uqu5dleh5vrnk6lkatc4kq0oq4bn3s9esxcnu9adg7qp0o39uoiu3em"
             echo "- Vérification IPNS : $IPNS_ETAT"
-            echo "- CID vérifié identique à celui des octets testés dans \`build-and-test\`, et à celui annoncé par Filebase."
+            echo "- CID vérifié identique à celui des octets testés dans \`build-and-test\`."
+            echo "- Épinglage Filebase : $PIN_PREUVE"
           } >> $GITHUB_STEP_SUMMARY
 
   # ── Pings de découverte ───────────────────────────────────────────────────
