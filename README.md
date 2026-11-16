@@ -87,6 +87,14 @@ Le site suppose un **fond sombre** : les textes secondaires (dates, légendes, c
 | `/llms-full.txt` | Markdown | Contexte complet pour les IA |
 | `/sitemap.xml` | XML | Découverte par les moteurs de recherche |
 
+### Mode kiosque (`/live`)
+
+Diaporama plein écran des panneaux en période de diffusion, pensé pour un écran public. Paramètres : `?dwell=<secondes>` (durée par panneau, de 3 à 3600, 8 par défaut), `?board=<id>` (panneau de départ, s'il est en diffusion), `?journal=1` (journal des diffusions).
+
+Un bandeau en bas d'écran indique la **version** affichée (commit du build), l'**empreinte** du panneau en cours (celle du sceau, vérifiable sur `/verifier/`) et l'état du réseau (« Hors ligne — copie locale » quand le Service Worker sert le cache).
+
+Avec `?journal=1`, chaque affichage est noté (instant, panneau, empreinte, version, réseau) dans le `localStorage` de l'écran, plafonné à 5 000 entrées, et le bouton « Exporter le journal (JSON) » le télécharge : une preuve de diffusion pour un lieu d'exposition. **Rien ne quitte l'appareil** sans cet export manuel ; sans le paramètre, rien n'est enregistré.
+
 ## Architecture
 
 ```
