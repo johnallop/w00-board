@@ -274,6 +274,14 @@ Le prix est un aller-retour réseau avant le premier rendu. Hors ligne il n'est 
 
 > ⚠️ Ne jamais recréer `public/sw.js` : `public/` est recopié verbatim et le fichier masquerait la route, qui redeviendrait muette. `src/tests/serviceWorker.test.ts` interdit son retour.
 
+## Inventaire des dépendances (SBOM)
+
+Chaque run de `deploy.yml` produit un SBOM CycloneDX des dépendances de production, avec `npm sbom` (outil intégré à npm, rien d'installé en plus), et le publie comme artefact `sbom-cyclonedx` du run. Il ne fait pas partie du site publié. Pour le produire en local :
+
+```bash
+npm sbom --sbom-format cyclonedx --omit dev > sbom.cdx.json
+```
+
 ## Tests
 
 ```bash
