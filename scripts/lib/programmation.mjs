@@ -113,3 +113,24 @@ export function libellePeriode(panneau) {
 export function estEnDiffusion(panneau, instant) {
   return etatDeDiffusion(panneau, instant) === 'en-cours';
 }
+
+/**
+ * Trie un lot de panneaux à annoncer : ceux en période, et les autres avec
+ * leur état — pour que la diffusion dise ce qu'elle écarte et pourquoi.
+ * @template {Programmable} T
+ * @param {T[]} panneaux
+ * @param {Date} instant
+ * @returns {{ enPeriode: T[], horsPeriode: Array<{ panneau: T, etat: 'a-venir' | 'terminee' }> }}
+ */
+export function separerParPeriode(panneaux, instant) {
+  /** @type {T[]} */
+  const enPeriode = [];
+  /** @type {Array<{ panneau: T, etat: 'a-venir' | 'terminee' }>} */
+  const horsPeriode = [];
+  for (const panneau of panneaux) {
+    const etat = etatDeDiffusion(panneau, instant);
+    if (etat === 'en-cours') enPeriode.push(panneau);
+    else horsPeriode.push({ panneau, etat });
+  }
+  return { enPeriode, horsPeriode };
+}

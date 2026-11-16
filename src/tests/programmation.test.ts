@@ -5,6 +5,7 @@ import {
   etatDeDiffusion,
   estEnDiffusion,
   libellePeriode,
+  separerParPeriode,
 } from '../../scripts/lib/programmation.mjs';
 
 const t = (iso: string) => new Date(iso);
@@ -72,5 +73,28 @@ describe('libellePeriode', () => {
 
   it('ne dit rien sans période', () => {
     expect(libellePeriode({})).toBeNull();
+  });
+});
+
+// La diffusion à la fusion (broadcast.mjs, mode diff) n'annonce que ce lot-là.
+describe('separerParPeriode', () => {
+  const lot = [
+    { id: 'sans-periode' },
+    { id: 'futur', startDate: '2026-12-01' },
+    { id: 'en-cours', startDate: '2026-11-01', endDate: '2026-11-30' },
+    { id: 'fini', endDate: '2026-11-15' },
+  ];
+
+  it('garde les panneaux en période, dans leur ordre', () => {
+    const { enPeriode } = separerParPeriode(lot, t('2026-11-16T12:00:00Z'));
+    expect(enPeriode.map((p) => p.id)).toEqual(['sans-periode', 'en-cours']);
+  });
+
+  it('nomme l’état de chaque panneau écarté', () => {
+    const { horsPeriode } = separerParPeriode(lot, t('2026-11-16T12:00:00Z'));
+    expect(horsPeriode.map(({ panneau, etat }) => [panneau.id, etat])).toEqual([
+      ['futur', 'a-venir'],
+      ['fini', 'terminee'],
+    ]);
   });
 });

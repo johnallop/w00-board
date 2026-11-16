@@ -15,6 +15,7 @@ import fs from 'fs';
 import { canonicalizeBillboard } from '../src/utils/posterHash.ts';
 import { diffBillboards } from './lib/diff-billboards.mjs';
 import { heartbeatBoard } from './lib/rotation.mjs';
+import { etatDeDiffusion, separerParPeriode } from './lib/programmation.mjs';
 import {
   validerPanneauDiffusable,
   validerSiteUrl,
@@ -117,6 +118,12 @@ async function main() {
       console.error(`Panneau avec l'ID "${targetId}" introuvable dans la config actuelle`);
       process.exit(1);
     }
+    // Geste explicite d'un opérateur (ou heartbeat, déjà filtré) : on
+    // n'empêche pas, mais on le dit.
+    const etat = etatDeDiffusion(board, new Date());
+    if (etat !== 'en-cours') {
+      console.warn(`⚠️ "${targetId}" est hors de sa période de diffusion (${etat}) : diffusion maintenue à la demande.`);
+    }
     boardsToBroadcast = [board];
   } else if (prevPath) {
 
@@ -135,6 +142,20 @@ async function main() {
     const diff = diffBillboards(prevConfig, currConfig);
     boardsToBroadcast = [...diff.added, ...diff.changed];
     console.log(`Diff calculé : ${diff.added.length} ajoutés, ${diff.changed.length} modifiés.`);
+
+    /*
+     * Période de diffusion : une fusion n'annonce pas un panneau « à venir »
+     * (l'annonce précéderait l'affiche) ni « terminé ». Le heartbeat le
+     * reprendra pendant sa période ; sinon, workflow_dispatch avec son id.
+     */
+    const { enPeriode, horsPeriode } = separerParPeriode(boardsToBroadcast, new Date());
+    for (const { panneau, etat } of horsPeriode) {
+      console.log(
+        `Panneau "${panneau.id}" écarté : ${etat === 'a-venir' ? 'période à venir' : 'période terminée'}. ` +
+          'À diffuser plus tard via workflow_dispatch (id) si besoin.'
+      );
+    }
+    boardsToBroadcast = enPeriode;
 
     /*
      * Mode diff = déclenché par un push : le site est en train d'être construit
