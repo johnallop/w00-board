@@ -127,6 +127,14 @@ const sealSvg = generateSealSvg(fingerprint, accent, 96);
             Affiche PNG
           </a>
           <span class="download-sep" aria-hidden="true">·</span>
+          <a
+            href={`/dooh/${board.id}.png`}
+            download={`w00-board-${board.id}-vertical.png`}
+            class="download-btn"
+          >
+            Affiche verticale (écran)
+          </a>
+          <span class="download-sep" aria-hidden="true">·</span>
           <button
             id="print-btn"
             class="download-btn"

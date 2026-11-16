@@ -3,7 +3,8 @@ import { Resvg } from '@resvg/resvg-js';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { BillboardItem, ThemeConfig, LayoutConfig } from '../types/config';
-import { renderOgImage } from './ogTemplate';
+import { renderOgImage, renderDoohImage, FORMAT_DOOH, type OgNode } from './ogTemplate';
+import { generateQrCodeSvg } from './qrcode';
 
 let fontData: Buffer | ArrayBuffer | null = null;
 
@@ -42,11 +43,34 @@ export async function renderBoardPng(
   theme: ThemeConfig,
   layout: LayoutConfig
 ): Promise<Uint8Array> {
+  return rasteriser(renderOgImage(board, theme, layout), 1200, 630);
+}
+
+/**
+ * Affiche verticale DOOH 1080×1920 d'un panneau — utilisée par /dooh/[id].png.
+ *
+ * Le QR code (même générateur que la page /b/<id>/, donc déterministe) entre
+ * dans Satori comme image `data:` encodée en base64 : Satori accepte une source
+ * `data:` dans `<img>` (README de satori 0.10, « Images »), sans aucune requête.
+ */
+export async function renderDoohPng(
+  board: BillboardItem,
+  theme: ThemeConfig,
+  layout: LayoutConfig,
+  boardUrl: string
+): Promise<Uint8Array> {
+  const qrSvg = generateQrCodeSvg(boardUrl, 260);
+  const qrSrc = `data:image/svg+xml;base64,${Buffer.from(qrSvg).toString('base64')}`;
+  const adresse = boardUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  return rasteriser(renderDoohImage(board, theme, layout, qrSrc, adresse), FORMAT_DOOH.width, FORMAT_DOOH.height);
+}
+
+async function rasteriser(arbre: OgNode, width: number, height: number): Promise<Uint8Array> {
   const fontBuffer = await getFontData();
 
-  const svg = await satori(renderOgImage(board, theme, layout) as Parameters<typeof satori>[0], {
-    width: 1200,
-    height: 630,
+  const svg = await satori(arbre as Parameters<typeof satori>[0], {
+    width,
+    height,
     fonts: [
       {
         name: 'Inter',
@@ -57,6 +81,6 @@ export async function renderBoardPng(
     ],
   });
 
-  const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: 1200 } });
+  const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: width } });
   return resvg.render().asPng();
 }

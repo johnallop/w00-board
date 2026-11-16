@@ -5,6 +5,7 @@ import {
   renderBoardImage,
   renderFallbackImage,
   renderOgImage,
+  renderDoohImage,
   TITRE_GENERIQUE,
   INVITATION_GENERIQUE,
 } from '../utils/ogTemplate';
@@ -174,6 +175,42 @@ function textesRendus(node: OgNode | string, acc: string[] = []): string[] {
   else if (children && typeof children === 'object') textesRendus(children as OgNode, acc);
   return acc;
 }
+
+describe('renderDoohImage — affiche verticale', () => {
+  const QR = 'data:image/svg+xml;base64,PHN2Zy8+';
+  const dooh = (b: BillboardItem) => renderDoohImage(b, theme, layout, QR, 'board.wooddyviat.com/b/test');
+  const tousLesTextes = (b: BillboardItem) => textesRendus(dooh(b)).join(' | ');
+
+  it('porte le message, la signature, le QR et l’adresse', () => {
+    const arbre = dooh(board({ message: 'LA PAIX SOIT AVEC VOUS', author: 'W00DDY' }));
+    expect(h1Of(arbre).props.children).toBe('LA PAIX SOIT AVEC VOUS');
+    expect(tousLesTextes(board({ author: 'W00DDY' }))).toContain('— W00DDY');
+    const [img] = findNodes(arbre, (n) => n.type === 'img');
+    // Satori exige des dimensions explicites sur <img> (README satori, « Images »).
+    expect(img.props).toMatchObject({ src: QR, width: 260, height: 260 });
+    expect(tousLesTextes(board())).toContain('board.wooddyviat.com/b/test');
+  });
+
+  it('agrandit le titre par rapport à la carte OG, selon la même loi', () => {
+    const b = board({ message: 'LA PAIX SOIT AVEC VOUS' });
+    const tailleOg = parseInt(String(h1Of(renderBoardImage(b, theme, layout)).props.style?.fontSize), 10);
+    const tailleDooh = parseInt(String(h1Of(dooh(b)).props.style?.fontSize), 10);
+    expect(tailleDooh).toBe(tailleOg * 2);
+  });
+
+  // Même garantie que la carte OG : jamais de carré `.notdef`. Le QR reste,
+  // puisque c'est lui qui mène au message réel.
+  it('bascule sur le titre générique quand la police ne couvre pas le message', () => {
+    const arbre = dooh(board({ message: '和平与你同在', author: '李明' }));
+    expect(h1Of(arbre).props.children).toBe(TITRE_GENERIQUE);
+    expect(textesRendus(arbre).every((t) => uncoveredIn(t).length === 0)).toBe(true);
+    expect(findNodes(arbre, (n) => n.type === 'img')).toHaveLength(1);
+  });
+
+  it('retire la signature quand l’auteur n’est pas dessinable', () => {
+    expect(tousLesTextes(board({ author: '李明' }))).not.toContain('—');
+  });
+});
 
 describe('renderOgImage — aiguillage police', () => {
   it('la carte générique est elle-même entièrement dessinable', () => {

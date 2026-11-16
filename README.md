@@ -79,6 +79,7 @@ Le site suppose un **fond sombre** : les textes secondaires (dates, légendes, c
 | `/creer/` | HTML | Formulaire de proposition d'un panneau, avec aperçu et validation en direct |
 | `/og-image.png` | PNG 1200×630 | Aperçu pour les réseaux sociaux (premier panneau) |
 | `/og/<id>.png` | PNG 1200×630 | Carte OG dédiée de chaque panneau |
+| `/dooh/<id>.png` | PNG 1080×1920 | Affiche verticale pour écran (vitrine, totem, kiosque), avec QR code vers `/b/<id>/` |
 | `/icons/*.png` | PNG | Icônes de l'application installable (192, 512, maskable, Apple 180), rendues depuis `favicon.svg` |
 | `/feed.xml` | RSS 2.0 | Lecteurs de flux |
 | `/feed.json` | JSON Feed 1.1 | Lecteurs de flux modernes |
@@ -107,6 +108,7 @@ src/
 │   ├── b/[id].astro                # L'affiche individuelle de chaque panneau
 │   ├── creer.astro                 # Proposer un panneau (formulaire + aperçu)
 │   ├── og/[id].png.ts              # Carte OG dédiée par panneau
+│   ├── dooh/[id].png.ts            # Affiche verticale 1080×1920 par panneau
 │   ├── feed.xml.ts                 # Flux RSS
 │   ├── feed.json.ts                # Flux JSON Feed 1.1
 │   ├── llms.txt.ts                 # Résumé markdown pour les IA
