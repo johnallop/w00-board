@@ -77,6 +77,7 @@ Le site suppose un **fond sombre** : les textes secondaires (dates, légendes, c
 | `/` | HTML | Le mur : tous les panneaux, filtrables par tag |
 | `/b/<id>/` | HTML | Une affiche par panneau — l'URL canonique à partager |
 | `/creer/` | HTML | Formulaire de proposition d'un panneau, avec aperçu et validation en direct |
+| `/mentions-legales/` | HTML | Éditeur, hébergeur, données personnelles (données dans `src/data/editeur.ts`) |
 | `/og-image.png` | PNG 1200×630 | Aperçu pour les réseaux sociaux (premier panneau) |
 | `/og/<id>.png` | PNG 1200×630 | Carte OG dédiée de chaque panneau |
 | `/dooh/<id>.png` | PNG 1080×1920 | Affiche verticale pour écran (vitrine, totem, kiosque), avec QR code vers `/b/<id>/` |
@@ -115,6 +116,7 @@ src/
 │   ├── index.astro                 # Le mur multi-panneaux (statique)
 │   ├── b/[id].astro                # L'affiche individuelle de chaque panneau
 │   ├── creer.astro                 # Proposer un panneau (formulaire + aperçu)
+│   ├── mentions-legales.astro      # Mentions légales (loi n° 2004-575, art. 1-1)
 │   ├── og/[id].png.ts              # Carte OG dédiée par panneau
 │   ├── dooh/[id].png.ts            # Affiche verticale 1080×1920 par panneau
 │   ├── feed.xml.ts                 # Flux RSS

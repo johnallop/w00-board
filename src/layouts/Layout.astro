@@ -235,7 +235,7 @@ const jsonLdSchemas = board ? [
             </ul>
           </nav>
         )}
-        <nav aria-label="Liens de permanence">
+        <nav aria-label="Liens de permanence" class="footer-liens">
           <a href={IPNS_GATEWAY_URL} rel="noopener">Miroir IPFS</a>
           <span class="footer-sep" aria-hidden="true">·</span>
           <a href={IPFS_HISTORY_URL} rel="noopener">Historique des versions</a>
@@ -243,6 +243,8 @@ const jsonLdSchemas = board ? [
           <a href={DEPOT_URL} rel="noopener">Source</a>
           <span class="footer-sep" aria-hidden="true">·</span>
           <a href="/creer/">Proposer un panneau</a>
+          <span class="footer-sep" aria-hidden="true">·</span>
+          <a href="/mentions-legales/">Mentions légales</a>
         </nav>
         <p class="footer-note">
           Adresse décentralisée stable : <code>ipns://{IPNS_NAME}</code>
@@ -458,6 +460,12 @@ const jsonLdSchemas = board ? [
     text-decoration-color: rgba(195, 214, 219, 0.45);
     text-underline-offset: 3px;
     transition: color 200ms var(--wv-ease), text-decoration-color 200ms var(--wv-ease);
+  }
+
+  /* Cinq liens : à 375 px, « Mentions légales » se coupait en deux lignes.
+     La rangée passe à la ligne ENTRE les liens, comme sur /b/<id>/. */
+  .footer-liens a {
+    white-space: nowrap;
   }
 
   .site-footer a:hover,
