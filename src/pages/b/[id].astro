@@ -560,11 +560,19 @@ const sealSvg = generateSealSvg(fingerprint, accent, 96);
     margin: 0;
   }
 
+  /* Quatre liens depuis l'affiche verticale : à 375 px, chaque libellé se
+     cassait en deux lignes. La rangée passe à la ligne ENTRE les liens. */
   .qrcode-downloads {
     display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.25rem 0.5rem;
     margin-top: 0.25rem;
+  }
+
+  .qrcode-downloads .download-btn {
+    white-space: nowrap;
   }
 
   .download-btn {
