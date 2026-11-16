@@ -52,6 +52,7 @@ ${boardsList}
 | HTML | ${siteUrl}/ | Visiteurs humains |
 | Pages panneaux | ${siteUrl}/b/<id>/ | Une affiche par panneau — URL canonique de partage |
 | Cartes OG panneaux | ${siteUrl}/og/<id>.png | Aperçu social dédié par panneau (1200×630) |
+| Affiches verticales | ${siteUrl}/dooh/<id>.png | Affiche pour écran d'affichage (1080×1920), QR code vers la page du panneau |
 | RSS 2.0 | ${siteUrl}/feed.xml | Agrégateurs, Feedly, NetNewsWire |
 | JSON Feed 1.1 | ${siteUrl}/feed.json | Lecteurs modernes |
 | LLMs (court) | ${siteUrl}/llms.txt | Résumé pour agents IA |

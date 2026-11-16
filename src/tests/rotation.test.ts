@@ -19,6 +19,28 @@ describe('isoWeek', () => {
   });
 });
 
+describe('heartbeatBoard — période de diffusion', () => {
+  const lundi = new Date('2026-01-05T09:17:00Z'); // semaine 2
+
+  it('ne tire jamais un panneau terminé ou à venir', () => {
+    const boards = [
+      { id: 'fini', endDate: '2026-01-04' },
+      { id: 'futur', startDate: '2026-02-01' },
+      { id: 'actif' },
+    ];
+    expect(heartbeatBoard(boards, lundi)).toEqual({ id: 'actif' });
+  });
+
+  it('rend null quand aucun panneau n’est en diffusion', () => {
+    expect(heartbeatBoard([{ id: 'fini', endDate: '2026-01-04' }], lundi)).toBeNull();
+  });
+
+  it('choisit comme avant quand aucun panneau ne déclare de période', () => {
+    // Même attente que le cas « semaineISO % longueur » ci-dessous.
+    expect(heartbeatBoard([{ id: 'a' }, { id: 'b' }, { id: 'c' }], lundi)).toEqual({ id: 'c' });
+  });
+});
+
 describe('heartbeatBoard', () => {
   const boards = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
 

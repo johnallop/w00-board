@@ -13,6 +13,7 @@ import { GET as getLlms } from '../pages/llms.txt';
 import { GET as getLlmsFull } from '../pages/llms-full.txt';
 import { GET as getOgSite } from '../pages/og-image.png';
 import { GET as getOgBoard } from '../pages/og/[id].png';
+import { GET as getDoohBoard } from '../pages/dooh/[id].png';
 import { GET as getSw } from '../pages/sw.js';
 
 /*
@@ -215,6 +216,10 @@ const ROUTES: Route[] = [
   ...config.billboards.map((board) => ({
     nom: `og/${board.id}.png`,
     appel: () => getOgBoard(contexte({ board })),
+  })),
+  ...config.billboards.map((board) => ({
+    nom: `dooh/${board.id}.png`,
+    appel: () => getDoohBoard(contexte({ board })),
   })),
 ];
 

@@ -143,6 +143,19 @@ jobs:
         id: cid
         run: npm run check:cid
 
+      # Inventaire des dépendances livrées (SBOM CycloneDX), produit par npm
+      # lui-même : aucun outil ajouté. Écrit HORS de dist/ — le site publié et
+      # son CID n'en dépendent pas. --omit dev : on inventorie ce qui part en
+      # production, pas l'outillage de build et de test.
+      - name: Inventaire des dépendances (SBOM)
+        run: npm sbom --sbom-format cyclonedx --omit dev > "$RUNNER_TEMP/sbom.cdx.json"
+
+      - name: Publier le SBOM en artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: ${{ runner.temp }}/sbom.cdx.json
+
       # Le job ipfs épingle exactement les octets testés ici (pas un re-build)
       - name: Publier dist en artifact (pour le miroir IPFS)
         if: github.event_name == 'push'

@@ -89,6 +89,39 @@ describe('validateConfig', () => {
     ).not.toThrow();
   });
 
+  describe('période de diffusion (startDate / endDate)', () => {
+    const avec = (periode: Record<string, unknown>) => ({
+      ...validConfig,
+      billboards: [{ ...validConfig.billboards[0], ...periode }],
+    });
+
+    it('accepte une période complète, ou une seule borne', () => {
+      expect(() => validateConfig(avec({ startDate: '2026-12-01', endDate: '2026-12-15' }))).not.toThrow();
+      expect(() => validateConfig(avec({ startDate: '2026-12-01T08:00:00+01:00' }))).not.toThrow();
+      expect(() => validateConfig(avec({ endDate: '2026-12-15' }))).not.toThrow();
+    });
+
+    // Une borne ignorée ferait tourner le panneau indéfiniment : erreur dure.
+    it.each([
+      ['startDate', '01/12/2026'],
+      ['endDate', '2026-12-15T18:00'], // heure sans fuseau : dépendrait de la machine
+      ['endDate', 20261215],
+    ])('rejette %s = %s', (cle, valeur) => {
+      expect(() => validateConfig(avec({ [cle]: valeur }))).toThrow(`"billboards[0].${cle}"`);
+    });
+
+    it('rejette une période vide', () => {
+      expect(() => validateConfig(avec({ startDate: '2026-12-15T12:00:00Z', endDate: '2026-12-15T12:00:00Z' }))).toThrow(
+        'période de diffusion est vide'
+      );
+    });
+
+    it('accepte un seul jour (début et fin le même jour)', () => {
+      // La fin d'un jour seul couvre la journée entière : la période dure 24 h.
+      expect(() => validateConfig(avec({ startDate: '2026-12-15', endDate: '2026-12-15' }))).not.toThrow();
+    });
+  });
+
   it('accepte un panneau sans date (champ optionnel)', () => {
     expect(() =>
       validateConfig({ ...validConfig, billboards: [{ id: 'x', message: 'M', author: 'A' }] })

@@ -6,6 +6,7 @@
  *
  * Fonctions pures — testées dans src/tests/rotation.test.ts.
  */
+import { estEnDiffusion } from './programmation.mjs';
 
 /** Numéro de semaine ISO 8601 (1-53) — les semaines commencent le lundi. */
 export function isoWeek(date) {
@@ -16,8 +17,16 @@ export function isoWeek(date) {
   return Math.ceil(((d.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
 }
 
-/** @returns {object | null} le panneau de la semaine, ou null si le mur est vide */
+/**
+ * Le panneau de la semaine, choisi parmi ceux en période de diffusion
+ * (startDate/endDate, voir programmation.mjs). Sans période déclarée, tous le
+ * sont : le choix est alors identique à l'ancienne règle.
+ *
+ * @returns {object | null} null si aucun panneau n'est en diffusion à `date`
+ */
 export function heartbeatBoard(boards, date) {
-  if (!Array.isArray(boards) || boards.length === 0) return null;
-  return boards[isoWeek(date) % boards.length];
+  if (!Array.isArray(boards)) return null;
+  const diffusables = boards.filter((b) => estEnDiffusion(b, date));
+  if (diffusables.length === 0) return null;
+  return diffusables[isoWeek(date) % diffusables.length];
 }

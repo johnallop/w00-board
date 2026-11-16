@@ -44,6 +44,8 @@ Tout le contenu et l'apparence sont contrôlés par **`src/data/config.json`** :
 
 Chaque panneau du tableau `billboards[]` possède : `id` (slug URL, unique), `message`, `author`, et en option `tags` (affichés et convertis en hashtags à la diffusion), `accentColor` (surcharge la couleur d'accent du thème pour ce panneau) et `date` (ISO 8601 — fuseau **obligatoire** si une heure est présente, pour un build reproductible ; utilisée comme date de publication dans les flux et le sitemap).
 
+**Période de diffusion** — `startDate` et `endDate`, facultatifs, même format que `date`. Un jour seul s'entend en UTC, et `endDate` le couvre en entier (`"endDate": "2026-12-15"` diffuse jusqu'au 16 à 00:00 UTC). Hors période, le panneau n'est plus montré par le mode kiosque `/live` ni tiré par la rotation hebdomadaire ; sa page `/b/<id>/` reste en ligne et affiche la période. Sur le mur d'accueil, la carte reste visible (le mur sert aussi d'archive) avec sa période écrite en clair et un badge « À venir » ou « Terminé » à la place de « Live ». À la fusion de la config, la diffusion sociale écarte un panneau hors période et le dit dans son journal : le heartbeat le reprendra pendant sa période, ou `workflow_dispatch` avec son `id` (diffusion maintenue, avec un avertissement). Le filtrage se fait à l'affichage, jamais au build (qui reste reproductible). Conséquence assumée : ce qui est figé au build ne trie pas — les flux RSS et JSON, `llms.txt` et le sitemap listent tous les panneaux, et sans JavaScript `/live` montre le premier panneau et le mur garde « Live » sur chaque carte. Ces deux champs ne font pas partie de l'empreinte d'authenticité : prolonger une campagne ne change pas son sceau.
+
 ### Comptes sociaux associés (optionnel)
 
 La clé `social` relie le panneau à ses comptes publics. Ils apparaissent dans le pied de page de chaque page (liens `rel="me"`, qui permettent par exemple à Mastodon d'afficher le site comme vérifié sur le profil), dans le JSON-LD (`sameAs`) et dans `llms.txt`. Absente ou vide, rien ne s'affiche.
@@ -77,12 +79,21 @@ Le site suppose un **fond sombre** : les textes secondaires (dates, légendes, c
 | `/creer/` | HTML | Formulaire de proposition d'un panneau, avec aperçu et validation en direct |
 | `/og-image.png` | PNG 1200×630 | Aperçu pour les réseaux sociaux (premier panneau) |
 | `/og/<id>.png` | PNG 1200×630 | Carte OG dédiée de chaque panneau |
+| `/dooh/<id>.png` | PNG 1080×1920 | Affiche verticale pour écran (vitrine, totem, kiosque), avec QR code vers `/b/<id>/` |
 | `/icons/*.png` | PNG | Icônes de l'application installable (192, 512, maskable, Apple 180), rendues depuis `favicon.svg` |
 | `/feed.xml` | RSS 2.0 | Lecteurs de flux |
 | `/feed.json` | JSON Feed 1.1 | Lecteurs de flux modernes |
 | `/llms.txt` | Markdown | Résumé pour les IA (AEO/GEO) |
 | `/llms-full.txt` | Markdown | Contexte complet pour les IA |
 | `/sitemap.xml` | XML | Découverte par les moteurs de recherche |
+
+### Mode kiosque (`/live`)
+
+Diaporama plein écran des panneaux en période de diffusion, pensé pour un écran public. Paramètres : `?dwell=<secondes>` (durée par panneau, de 3 à 3600, 8 par défaut), `?board=<id>` (panneau de départ, s'il est en diffusion), `?journal=1` (journal des diffusions).
+
+Un bandeau en bas d'écran indique la **version** affichée (commit du build), l'**empreinte** du panneau en cours (celle du sceau, vérifiable sur `/verifier/`) et l'état du réseau (« Hors ligne — copie locale » quand le Service Worker sert le cache).
+
+Avec `?journal=1`, chaque affichage est noté (instant, panneau, empreinte, version, réseau) dans le `localStorage` de l'écran, plafonné à 5 000 entrées, et le bouton « Exporter le journal (JSON) » le télécharge : une preuve de diffusion pour un lieu d'exposition. **Rien ne quitte l'appareil** sans cet export manuel ; sans le paramètre, rien n'est enregistré.
 
 ## Architecture
 
@@ -105,6 +116,7 @@ src/
 │   ├── b/[id].astro                # L'affiche individuelle de chaque panneau
 │   ├── creer.astro                 # Proposer un panneau (formulaire + aperçu)
 │   ├── og/[id].png.ts              # Carte OG dédiée par panneau
+│   ├── dooh/[id].png.ts            # Affiche verticale 1080×1920 par panneau
 │   ├── feed.xml.ts                 # Flux RSS
 │   ├── feed.json.ts                # Flux JSON Feed 1.1
 │   ├── llms.txt.ts                 # Résumé markdown pour les IA
@@ -271,6 +283,14 @@ Pourquoi pas la stratégie inverse — servir le cache d'abord et revalider derr
 Le prix est un aller-retour réseau avant le premier rendu. Hors ligne il n'est pas payé — `fetch()` échoue immédiatement et le cache prend le relais.
 
 > ⚠️ Ne jamais recréer `public/sw.js` : `public/` est recopié verbatim et le fichier masquerait la route, qui redeviendrait muette. `src/tests/serviceWorker.test.ts` interdit son retour.
+
+## Inventaire des dépendances (SBOM)
+
+Chaque run de `deploy.yml` produit un SBOM CycloneDX des dépendances de production, avec `npm sbom` (outil intégré à npm, rien d'installé en plus), et le publie comme artefact `sbom-cyclonedx` du run. Il ne fait pas partie du site publié. Pour le produire en local :
+
+```bash
+npm sbom --sbom-format cyclonedx --omit dev > sbom.cdx.json
+```
 
 ## Tests
 

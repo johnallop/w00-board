@@ -7,6 +7,7 @@ import type { BillboardItem } from '../../types/config';
 import { generateQrCodeSvg } from '../../utils/qrcode';
 import { computeFingerprint, formatFingerprint } from '../../utils/posterHash';
 import { generateSealSvg } from '../../utils/posterSeal';
+import { libellePeriode } from '../../../scripts/lib/programmation.mjs';
 
 validateConfig(rawConfig);
 
@@ -32,6 +33,8 @@ const description = `« ${board.message} » — signé par ${board.author}. Pann
 const displayDate = board.date
   ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(board.date))
   : undefined;
+// Période de diffusion (startDate/endDate) : libellé statique, même règle UTC.
+const periode = libellePeriode(board);
 
 const siteUrl = Astro.site?.toString().replace(/\/$/, '') || 'https://board.wooddyviat.com';
 const boardUrl = `${siteUrl}/b/${board.id}/`;
@@ -76,6 +79,7 @@ const sealSvg = generateSealSvg(fingerprint, accent, 96);
       )}
 
       {displayDate && <p class="poster-date">Publié le {displayDate}</p>}
+      {periode && <p class="poster-date">{periode}</p>}
 
       {/*
         Sceau d'authenticité. Le SVG vient de generateSealSvg() : il est
@@ -121,6 +125,14 @@ const sealSvg = generateSealSvg(fingerprint, accent, 96);
             class="download-btn"
           >
             Affiche PNG
+          </a>
+          <span class="download-sep" aria-hidden="true">·</span>
+          <a
+            href={`/dooh/${board.id}.png`}
+            download={`w00-board-${board.id}-vertical.png`}
+            class="download-btn"
+          >
+            Affiche verticale (écran)
           </a>
           <span class="download-sep" aria-hidden="true">·</span>
           <button
@@ -548,11 +560,24 @@ const sealSvg = generateSealSvg(fingerprint, accent, 96);
     margin: 0;
   }
 
+  /* Quatre liens depuis l'affiche verticale : à 375 px, chaque libellé se
+     cassait en deux lignes. La rangée passe à la ligne ENTRE les liens. */
   .qrcode-downloads {
     display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.25rem 0.5rem;
     margin-top: 0.25rem;
+  }
+
+  /* min-height : la cible faisait 14 px de haut, sous les 24 px de
+     WCAG 2.5.8. inline-flex centre le libellé dans la cible agrandie. */
+  .qrcode-downloads .download-btn {
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
   }
 
   .download-btn {

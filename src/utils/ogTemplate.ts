@@ -256,6 +256,196 @@ export function renderFallbackImage(
   });
 }
 
+/** Format de l'affiche verticale pour écran DOOH (portrait plein HD). */
+export const FORMAT_DOOH = { width: 1080, height: 1920 } as const;
+
+/** Ce que l'affiche verticale montre, une fois le texte rendu sûr. */
+interface ContenuDooh {
+  accent: string;
+  titre: string;
+  tailleTitre: number;
+  /** `null` retire la ligne de signature. */
+  auteur: string | null;
+  /** QR code déjà encodé en URL `data:` (voir ogRender.ts). */
+  qrSrc: string;
+  /** Adresse imprimée sous le QR, sans schéma (ex. board.wooddyviat.com/b/paix). */
+  adresse: string;
+}
+
+/**
+ * Affiche verticale 1080×1920 pour écran urbain, vitrine ou totem.
+ *
+ * Même langage visuel que la carte OG (fond, pastille, accent), mais une
+ * composition de lecture à distance : message géant au centre, et en bas un QR
+ * code vers la page du panneau — sur un écran public, c'est le seul moyen
+ * d'aller plus loin que l'image. Le QR garde son fond blanc d'origine : un code
+ * se lit en sombre sur clair (voir b/[id].astro).
+ */
+function carteDooh(theme: ThemeConfig, layout: LayoutConfig, contenu: ContenuDooh): OgNode {
+  const { textAlignValue, alignValue } = resolveAlignment(layout);
+  const { accent, titre, tailleTitre, auteur, qrSrc, adresse } = contenu;
+
+  return {
+    type: 'div',
+    props: {
+      style: {
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
+        backgroundColor: theme.backgroundColor,
+        width: '100%',
+        height: '100%',
+        padding: '96px',
+        boxSizing: 'border-box',
+        fontFamily: 'Inter',
+      },
+      children: [
+        {
+          type: 'div',
+          props: {
+            style: { display: 'flex', alignItems: 'center', gap: '14px' },
+            children: [
+              {
+                type: 'div',
+                props: {
+                  style: { width: '18px', height: '18px', borderRadius: '50%', backgroundColor: accent },
+                },
+              },
+              {
+                type: 'span',
+                props: {
+                  style: {
+                    fontSize: '28px',
+                    fontWeight: 700,
+                    color: theme.textColor,
+                    opacity: 0.8,
+                    letterSpacing: '2px',
+                    textTransform: 'uppercase',
+                  },
+                  children: 'Réseau Actif / Live',
+                },
+              },
+            ],
+          },
+        },
+        {
+          type: 'div',
+          props: {
+            style: { display: 'flex', flexDirection: 'column', alignItems: alignValue, gap: '48px' },
+            children: [
+              {
+                type: 'h1',
+                props: {
+                  style: {
+                    fontSize: `${tailleTitre}px`,
+                    fontWeight: 800,
+                    color: theme.textColor,
+                    lineHeight: 1.15,
+                    margin: 0,
+                    textAlign: textAlignValue,
+                  },
+                  children: titre,
+                },
+              },
+              ...(auteur === null
+                ? []
+                : [
+                    {
+                      type: 'p',
+                      props: {
+                        style: { fontSize: '44px', fontWeight: 700, color: accent, margin: 0 },
+                        children: `— ${auteur}`,
+                      },
+                    },
+                  ]),
+            ],
+          },
+        },
+        {
+          type: 'div',
+          props: {
+            style: {
+              display: 'flex',
+              alignItems: 'center',
+              gap: '40px',
+              paddingTop: '48px',
+              borderTop: '2px solid rgba(255, 255, 255, 0.12)',
+            },
+            children: [
+              {
+                type: 'img',
+                props: { src: qrSrc, width: 260, height: 260, style: { borderRadius: '16px' } },
+              },
+              {
+                type: 'div',
+                props: {
+                  style: { display: 'flex', flexDirection: 'column', gap: '12px' },
+                  children: [
+                    {
+                      type: 'p',
+                      props: {
+                        style: { fontSize: '36px', color: theme.textColor, opacity: 0.85, margin: 0 },
+                        children: 'Scannez pour lire et partager',
+                      },
+                    },
+                    {
+                      type: 'p',
+                      props: {
+                        style: { fontSize: '28px', color: accent, margin: 0 },
+                        children: adresse,
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      ],
+    },
+  };
+}
+
+/**
+ * Entrée de l'affiche verticale. Même garantie que `renderOgImage` : aucun
+ * carré `.notdef`, par la même règle `renderableText` — un message que la
+ * police ne sait pas dessiner laisse place au titre générique, et le QR reste,
+ * puisque c'est lui qui mène au message réel.
+ *
+ * Taille du titre : la loi de `scaledFontSizeFor`, doublée. La colonne de texte
+ * (888 px) est celle de la carte OG, mais la hauteur disponible est trois fois
+ * plus grande et l'écran se lit de loin.
+ */
+export function renderDoohImage(
+  board: BillboardItem,
+  theme: ThemeConfig,
+  layout: LayoutConfig,
+  qrSrc: string,
+  adresse: string
+): OgNode {
+  const accent = board.accentColor ?? theme.accentColor;
+  const message = renderableText(board.message);
+  if (message === null) {
+    return carteDooh(theme, layout, {
+      accent,
+      titre: TITRE_GENERIQUE,
+      tailleTitre: scaledFontSizeFor(TITRE_GENERIQUE, theme.fontSize) * 2,
+      auteur: null,
+      qrSrc,
+      adresse,
+    });
+  }
+  const auteur = renderableText(board.author);
+  return carteDooh(theme, layout, {
+    accent,
+    titre: message,
+    tailleTitre: scaledFontSizeFor(message, theme.fontSize) * 2,
+    auteur: auteur && auteur.trim().length > 0 ? auteur : null,
+    qrSrc,
+    adresse,
+  });
+}
+
 /**
  * L'aiguillage : la seule entrée que les routes OG doivent appeler.
  *

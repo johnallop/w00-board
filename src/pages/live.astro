@@ -3,10 +3,23 @@ import Layout from '../layouts/Layout.astro';
 import config from '../data/config.json';
 import { validateConfig } from '../utils/validateConfig';
 import { cssFitFactor } from '../utils/fitText';
+import type { BillboardItem } from '../types/config';
+import { resolveCommit } from '../utils/commit';
+import { computeFingerprint, formatFingerprint } from '../utils/posterHash';
 
 validateConfig(config);
 
-const { billboards, theme } = config;
+// Typé par le contrat et non par le JSON importé : le type déduit de
+// config.json ne connaît que les champs présents dans CE fichier, pas les
+// optionnels (startDate/endDate) qu'un panneau peut déclarer.
+const billboards: BillboardItem[] = config.billboards;
+const { theme } = config;
+
+// Bandeau d'état : la version et l'empreinte de ce que l'écran montre. Toutes
+// deux fixées au build (commit et contenu), donc sans effet sur la
+// reproductibilité : même commit, mêmes octets.
+const version = resolveCommit().slice(0, 7);
+const empreintes = await Promise.all(billboards.map((b) => computeFingerprint(b)));
 const globalAccent = theme.accentColor;
 
 export const prerender = true;
@@ -56,6 +69,10 @@ export const prerender = true;
             class={`live-slide ${index === 0 ? 'active' : ''}`}
             data-id={board.id}
             data-index={index}
+            data-start={board.startDate}
+            data-end={board.endDate}
+            data-empreinte={empreintes[index]}
+            data-empreinte-lisible={formatFingerprint(empreintes[index])}
             style={`--slide-accent: ${accent}; --fit: ${cssFitFactor(board.message)}`}
             role="group"
             aria-roledescription="diapositive"
@@ -86,6 +103,14 @@ export const prerender = true;
           </div>
         );
       })}
+
+      {/* Aucun panneau en période de diffusion (startDate/endDate) : le
+          kiosque le dit au lieu de montrer une campagne terminée ou à venir.
+          Affiché par le script seulement ; sans JS, pas d'horloge, donc pas de
+          tri — le premier panneau reste affiché, comme avant. */}
+      <div class="live-empty" id="live-empty" hidden>
+        <p class="live-empty-text">Aucun panneau programmé en ce moment.</p>
+      </div>
     </div>
 
     <!-- Contrôles et UI de progression -->
@@ -96,7 +121,7 @@ export const prerender = true;
            « Panneau 2 / 2 » toutes les 8 s, sans fin. Le script bascule la
            valeur ; sans JS, rien ne tourne et l'indicateur reste muet. -->
       <div class="status-indicator" id="status-indicator" aria-live="off">
-        Panneau <span id="current-index-txt">1</span> / {billboards.length}
+        Panneau <span id="current-index-txt">1</span> / <span id="total-txt">{billboards.length}</span>
         <span id="paused-txt" class="paused-badge" hidden> (En pause)</span>
       </div>
 
@@ -133,6 +158,23 @@ export const prerender = true;
       </a>
     </div>
 
+    {/* Bandeau d'état du kiosque (supervision d'écran) : quelle version, quel
+        panneau exact (empreinte du sceau, vérifiable sur /verifier/), réseau
+        ou copie locale. Le journal n'apparaît qu'avec ?journal=1. Rien de
+        tout cela ne quitte l'appareil. */}
+    <div class="live-etat" id="live-etat" data-version={version}>
+      <span>Version <code>{version}</code></span>
+      <span aria-hidden="true">·</span>
+      <span>Empreinte <code id="etat-empreinte">{formatFingerprint(empreintes[0])}</code></span>
+      <span class="etat-js" aria-hidden="true" hidden>·</span>
+      <span class="etat-js" id="etat-reseau" role="status" hidden></span>
+      <span class="etat-journal" id="etat-journal" hidden>
+        <span aria-hidden="true">·</span>
+        <span id="journal-compte">Journal : 0 diffusion</span>
+        <button id="journal-exporter" class="etat-btn" type="button">Exporter le journal (JSON)</button>
+      </span>
+    </div>
+
     <!-- Barre de progression de la diapositive active -->
     <div class="progress-container">
       <div id="progress-bar" class="progress-bar animating"></div>
@@ -155,6 +197,9 @@ export const prerender = true;
 
 <script>
   // Script compilé et sécurisé par Astro (conforme CSP)
+  import { estEnDiffusion } from '../../scripts/lib/programmation.mjs';
+  import { CLE_JOURNAL, ajouterEntree, exporterJournal, lireJournal } from '../utils/journalDiffusion';
+
   const container = document.getElementById('live-container') as HTMLElement | null;
   const slides = document.querySelectorAll<HTMLElement>('.live-slide');
   const progressBar = document.getElementById('progress-bar') as HTMLElement | null;
@@ -163,10 +208,91 @@ export const prerender = true;
   const playPauseBtn = document.getElementById('play-pause-btn') as HTMLButtonElement | null;
   const playIcon = document.getElementById('play-icon');
   const pauseIcon = document.getElementById('pause-icon');
+  const totalTxt = document.getElementById('total-txt');
+  const emptyState = document.getElementById('live-empty');
+
+  /*
+   * Diapositives en période de diffusion À CET INSTANT (startDate/endDate).
+   * Recalculé à chaque transition, pas une fois au chargement : un kiosque
+   * tourne des jours, et une campagne commence ou finit pendant qu'il tourne.
+   * La règle vit dans scripts/lib/programmation.mjs, la même que celle de la
+   * rotation hebdomadaire.
+   */
+  function indicesDiffusables(): number[] {
+    const maintenant = new Date();
+    return Array.from(slides).flatMap((s, i) =>
+      estEnDiffusion({ startDate: s.dataset.start, endDate: s.dataset.end }, maintenant) ? [i] : []
+    );
+  }
 
   if (container && slides.length > 0) {
     const params = new URLSearchParams(window.location.search);
-    
+
+    // ── Bandeau d'état et journal des diffusions ─────────────────────────
+    const etatEmpreinte = document.getElementById('etat-empreinte');
+    const etatReseau = document.getElementById('etat-reseau');
+    const journalCompte = document.getElementById('journal-compte');
+    const version = document.getElementById('live-etat')?.dataset.version ?? 'dev';
+    // Sur demande seulement : un visiteur ordinaire n'enregistre rien.
+    const journalActif = params.get('journal') === '1';
+
+    document.querySelectorAll<HTMLElement>('.etat-js').forEach((el) => (el.hidden = false));
+    function majReseau() {
+      if (etatReseau) etatReseau.textContent = navigator.onLine ? 'En ligne' : 'Hors ligne — copie locale';
+    }
+    majReseau();
+    window.addEventListener('online', majReseau);
+    window.addEventListener('offline', majReseau);
+
+    const pluriel = (n: number) => `Journal : ${n} diffusion${n > 1 ? 's' : ''}`;
+
+    /*
+     * Le stockage peut être refusé (navigation privée, quota, politique de
+     * l'appareil). Le kiosque continue de tourner ; le bandeau dit que le
+     * journal ne tient plus, au lieu de laisser croire qu'il enregistre.
+     */
+    function noterDiffusion(slide: HTMLElement) {
+      if (!journalActif) return;
+      try {
+        const journal = ajouterEntree(lireJournal(localStorage.getItem(CLE_JOURNAL)), {
+          t: new Date().toISOString(),
+          id: slide.dataset.id ?? '',
+          empreinte: slide.dataset.empreinte ?? '',
+          version,
+          enLigne: navigator.onLine,
+        });
+        localStorage.setItem(CLE_JOURNAL, JSON.stringify(journal));
+        if (journalCompte) journalCompte.textContent = pluriel(journal.length);
+      } catch {
+        if (journalCompte) journalCompte.textContent = 'Journal indisponible (stockage refusé)';
+      }
+    }
+
+    if (journalActif) {
+      const zone = document.getElementById('etat-journal');
+      if (zone) zone.hidden = false;
+      document.getElementById('journal-exporter')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        let brut: string | null = null;
+        try {
+          brut = localStorage.getItem(CLE_JOURNAL);
+        } catch {
+          // Stockage refusé : on exporte un journal vide plutôt que rien.
+        }
+        const maintenant = new Date().toISOString();
+        const texte = exporterJournal(lireJournal(brut), { page: window.location.href, exporteLe: maintenant });
+        const url = URL.createObjectURL(new Blob([texte], { type: 'application/json' }));
+        const lien = document.createElement('a');
+        lien.href = url;
+        lien.download = `journal-diffusion-${maintenant.slice(0, 10)}.json`;
+        document.body.appendChild(lien);
+        lien.click();
+        lien.remove();
+        // Révoqué après le départ du téléchargement, pas avant.
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      });
+    }
+
     // 1. Paramètres d'URL (dwell et board)
     // Borné à [3 s, 1 h] : `?dwell=0` ou une valeur négative passaient le test
     // NaN et donnaient setTimeout(…, 0) — rotation en boucle continue, fondus
@@ -175,15 +301,14 @@ export const prerender = true;
     const dwellTime = Math.min(3600, Math.max(3, isNaN(dwellSeconds) ? 8 : dwellSeconds)) * 1000;
     container.style.setProperty('--dwell-time', `${dwellTime}ms`);
 
+    // `?board=` n'est honoré que si ce panneau est en diffusion : le kiosque
+    // ne montre pas une campagne terminée parce qu'un lien la nomme.
+    // L'aperçu d'un panneau hors période reste possible sur /b/<id>/.
     const initialBoardId = params.get('board');
-    let currentIndex = 0;
-    
-    if (initialBoardId) {
-      const foundIndex = Array.from(slides).findIndex(s => s.dataset.id === initialBoardId);
-      if (foundIndex !== -1) {
-        currentIndex = foundIndex;
-      }
-    }
+    const auDemarrage = indicesDiffusables();
+    const demande = initialBoardId ? Array.from(slides).findIndex((s) => s.dataset.id === initialBoardId) : -1;
+    let currentIndex = auDemarrage.includes(demande) ? demande : (auDemarrage[0] ?? 0);
+    let verificationId: number | null = null;
 
     let isPlaying = true;
     let timerId: number | null = null;
@@ -201,9 +326,11 @@ export const prerender = true;
     }
 
     // Initialisation
-    showSlide(currentIndex);
+    if (auDemarrage.length > 0) showSlide(currentIndex);
+    else afficherVide();
 
     function showSlide(index: number) {
+      if (emptyState) emptyState.hidden = true;
       slides.forEach((slide, idx) => {
         const isActive = idx === index;
         slide.classList.toggle('active', isActive);
@@ -212,9 +339,17 @@ export const prerender = true;
 
       currentIndex = index;
 
+      const active = slides[index];
+      if (etatEmpreinte) etatEmpreinte.textContent = active.dataset.empreinteLisible ?? '';
+      noterDiffusion(active);
+
+      // Position et total comptés parmi les panneaux EN DIFFUSION, pas parmi
+      // tous ceux du build : « 2 / 5 » quand 3 sont hors période mentirait.
+      const diffusables = indicesDiffusables();
       if (currentIndexTxt) {
-        currentIndexTxt.textContent = (currentIndex + 1).toString();
+        currentIndexTxt.textContent = String(Math.max(1, diffusables.indexOf(index) + 1));
       }
+      if (totalTxt) totalTxt.textContent = String(diffusables.length);
 
       // Réinitialiser la barre de progression
       if (progressBar && isPlaying && !prefersReducedMotion) {
@@ -248,13 +383,42 @@ export const prerender = true;
     }
 
     function nextSlide() {
-      const nextIdx = (currentIndex + 1) % slides.length;
-      showSlide(nextIdx);
+      const diffusables = indicesDiffusables();
+      if (diffusables.length === 0) return afficherVide();
+      showSlide(diffusables.find((i) => i > currentIndex) ?? diffusables[0]);
     }
 
     function prevSlide() {
-      const prevIdx = (currentIndex - 1 + slides.length) % slides.length;
-      showSlide(prevIdx);
+      const diffusables = indicesDiffusables();
+      if (diffusables.length === 0) return afficherVide();
+      showSlide([...diffusables].reverse().find((i) => i < currentIndex) ?? diffusables[diffusables.length - 1]);
+    }
+
+    /*
+     * Plus aucun panneau en diffusion : on le dit, et on revérifie chaque
+     * minute — une campagne peut commencer pendant que l'écran est allumé, et
+     * personne ne sera là pour recharger la page.
+     */
+    function afficherVide() {
+      clearTimer();
+      slides.forEach((slide) => {
+        slide.classList.remove('active');
+        slide.setAttribute('aria-hidden', 'true');
+      });
+      if (emptyState) emptyState.hidden = false;
+      // Rien n'est affiché : le bandeau ne doit pas certifier le panneau d'avant.
+      if (etatEmpreinte) etatEmpreinte.textContent = '—';
+      if (currentIndexTxt) currentIndexTxt.textContent = '0';
+      if (totalTxt) totalTxt.textContent = '0';
+      progressBar?.classList.remove('animating');
+      if (verificationId !== null) return;
+      verificationId = window.setInterval(() => {
+        const diffusables = indicesDiffusables();
+        if (diffusables.length === 0) return;
+        if (verificationId !== null) window.clearInterval(verificationId);
+        verificationId = null;
+        showSlide(diffusables[0]);
+      }, 60_000);
     }
 
     function startTimer(time: number) {
@@ -306,7 +470,7 @@ export const prerender = true;
     // Événements clic
     container.addEventListener('click', (e) => {
       // Ignorer les clics sur les boutons et les liens de l'interface
-      if ((e.target as HTMLElement).closest('.live-ui')) return;
+      if ((e.target as HTMLElement).closest('.live-ui, .live-etat')) return;
       togglePlayPause();
     });
 
@@ -328,6 +492,9 @@ export const prerender = true;
 
     // Contrôles clavier
     window.addEventListener('keydown', (e) => {
+      // Le bouton d'export garde ses touches (Espace l'active, comme tout
+      // bouton) : sans cette garde, Espace mettait le diaporama en pause.
+      if ((e.target as HTMLElement).closest?.('.live-etat')) return;
       if (e.code === 'Space') {
         e.preventDefault();
         togglePlayPause();
@@ -416,6 +583,27 @@ export const prerender = true;
   .live-slide.active {
     opacity: 1;
     visibility: visible;
+  }
+
+  .live-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    text-align: center;
+  }
+
+  .live-empty[hidden] {
+    display: none;
+  }
+
+  .live-empty-text {
+    margin: 0;
+    font-size: clamp(1.25rem, 4vw, 2.5rem);
+    font-weight: 700;
+    color: var(--text);
   }
 
   /* Halo coloré dynamique lié à la couleur d'accent du panneau */
@@ -626,6 +814,61 @@ export const prerender = true;
     outline-offset: 3px;
   }
 
+  /* Bandeau d'état (supervision du kiosque) */
+  .live-etat {
+    position: absolute;
+    left: 2rem;
+    right: 2rem;
+    bottom: 1.25rem;
+    z-index: 10;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.6rem;
+    font-size: 0.75rem;
+    /* α 0,5 : plancher des textes secondaires, mesuré contre le fond
+       configuré par validateConfig (ALPHA_SECONDAIRE_MIN). */
+    color: rgba(248, 250, 252, 0.5);
+  }
+
+  .live-etat code {
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    letter-spacing: 0.04em;
+  }
+
+  .live-etat [hidden] {
+    display: none;
+  }
+
+  .etat-journal {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .etat-btn {
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    /* Cible ≥ 24 px de haut (WCAG 2.2, 2.5.8) : avec 4 px de marge, le bouton
+       mesurait 23 px (relevé à 375 px de large). */
+    min-height: 28px;
+    padding: 4px 12px;
+    border-radius: 100px;
+    cursor: pointer;
+  }
+
+  .etat-btn:hover {
+    border-color: rgba(255, 255, 255, 0.35);
+  }
+
+  .etat-btn:focus-visible {
+    outline: 2px solid var(--slide-accent);
+    outline-offset: 2px;
+  }
+
   /* Barre de progression */
   .progress-container {
     position: absolute;
@@ -678,6 +921,7 @@ export const prerender = true;
 
   @media (max-width: 768px) {
     .live-ui { top: 1rem; right: 1rem; left: 1rem; }
+    .live-etat { left: 1rem; right: 1rem; bottom: 0.75rem; }
     .live-slide { padding: 2rem 1.5rem; }
     .slide-content { gap: 1.5rem; }
     .tag-badge { font-size: 0.8rem; }

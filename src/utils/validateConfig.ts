@@ -1,5 +1,6 @@
 import type { BillboardConfig } from '../types/config';
 import { RESEAUX_SOCIAUX, MAX_PROFILS_SOCIAUX, MAX_LIBELLE_PROFIL, estReseauSocial } from './social';
+import { debutMs, finMs } from '../../scripts/lib/programmation.mjs';
 
 const VALID_H = ['left', 'center', 'right'] as const;
 const VALID_V = ['top', 'center', 'bottom'] as const;
@@ -240,6 +241,7 @@ export function validateConfig(config: unknown): asserts config is BillboardConf
         throw new Error(`config.json : "billboards[${i}].date" doit être une date ISO 8601 valide (ex. 2026-06-23 ou 2026-06-23T15:38:09Z)`);
       }
     }
+    validerPeriode(b, i);
   });
 
   // Vérification d'unicité des IDs — deux panneaux avec le même ID
@@ -265,6 +267,32 @@ export function validateConfig(config: unknown): asserts config is BillboardConf
   }
 
   validerProfilsSociaux(c.social);
+}
+
+/*
+ * Période de diffusion facultative. Une borne illisible est une erreur dure, et
+ * non « pas de borne » : un panneau dont la fin serait ignorée tournerait
+ * indéfiniment sur le kiosque, sans que rien ne le signale. Les bornes sont
+ * comparées telles que programmation.mjs les applique (fin d'un jour seul =
+ * lendemain 00:00 UTC), pour que la validation et l'affichage ne divergent pas.
+ */
+function validerPeriode(b: Record<string, unknown>, i: number): void {
+  for (const cle of ['startDate', 'endDate'] as const) {
+    const valeur = b[cle];
+    if (valeur === undefined) continue;
+    if (debutMs(valeur) === null) {
+      throw new Error(
+        `config.json : "billboards[${i}].${cle}" (${JSON.stringify(valeur)}) doit être une date ISO 8601 valide : jour seul (2026-12-01, compris en UTC) ou date-heure AVEC fuseau (2026-12-01T08:00:00+01:00)`
+      );
+    }
+  }
+  const debut = debutMs(b.startDate);
+  const fin = finMs(b.endDate);
+  if (debut !== null && fin !== null && fin <= debut) {
+    throw new Error(
+      `config.json : "billboards[${i}]" : la période de diffusion est vide (startDate ${b.startDate} ≥ fin effective de endDate ${b.endDate}). Le panneau ne serait jamais affiché.`
+    );
+  }
 }
 
 /*
