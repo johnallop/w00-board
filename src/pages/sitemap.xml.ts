@@ -27,7 +27,7 @@ export async function GET({ site }: APIContext) {
     // Pages utilitaires indexables (canonical et description propres). Sans
     // date : rien dans la config ne date leur dernière modification, et
     // inventer un lastmod serait le mensonge que ce fichier refuse ailleurs.
-    ...['/creer/', '/verifier/'].map((chemin) => `  <url>
+    ...['/creer/', '/verifier/', '/mentions-legales/'].map((chemin) => `  <url>
     <loc>${siteUrl}${chemin}</loc>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>

@@ -1,0 +1,202 @@
+---
+import Layout from '../layouts/Layout.astro';
+import rawConfig from '../data/config.json';
+import { validateConfig } from '../utils/validateConfig';
+import { DEPOT_URL } from '../data/depot';
+import { EDITEUR, DIRECTEUR_PUBLICATION, HEBERGEUR, STOCKAGE } from '../data/editeur';
+
+validateConfig(rawConfig);
+
+const { theme } = rawConfig;
+const description =
+  'Mentions légales de W00-Board : éditeur, directeur de la publication, hébergeur, données personnelles et licences.';
+---
+
+<Layout title="Mentions légales — W00-Board" description={description}>
+  <main
+    class="legal"
+    style={`--bg: ${theme.backgroundColor}; --text: ${theme.textColor}; --accent: ${theme.accentColor}; --font: ${theme.fontFamily}`}
+  >
+    <div class="legal-inner">
+      <header>
+        <h1>Mentions légales</h1>
+        <p class="legal-maj">Mise à jour : 16 novembre 2026</p>
+      </header>
+
+      <section aria-labelledby="t-editeur">
+        <h2 id="t-editeur">Éditeur du site</h2>
+        <p>
+          W00-Board est un projet {EDITEUR.projet}, édité par <strong>{EDITEUR.nom}</strong>,
+          {EDITEUR.statut}.
+        </p>
+        <dl>
+          <dt>Adresse</dt>
+          <dd>{EDITEUR.adresse}</dd>
+          <dt>Téléphone</dt>
+          <dd><a href={EDITEUR.telephoneUri}>{EDITEUR.telephone}</a></dd>
+          <dt>E-mail</dt>
+          <dd><a href={`mailto:${EDITEUR.email}`}>{EDITEUR.email}</a></dd>
+          {EDITEUR.siren && (
+            <>
+              <dt>SIREN</dt>
+              <dd>{EDITEUR.siren}</dd>
+            </>
+          )}
+          <dt>Directeur de la publication</dt>
+          <dd>{DIRECTEUR_PUBLICATION}</dd>
+        </dl>
+      </section>
+
+      <section aria-labelledby="t-hebergeur">
+        <h2 id="t-hebergeur">Hébergeur</h2>
+        <p><strong>{HEBERGEUR.nom}</strong> — {HEBERGEUR.role}.</p>
+        <p>{HEBERGEUR.adresse}</p>
+        <p>Téléphone : {HEBERGEUR.telephone}</p>
+      </section>
+
+      <section aria-labelledby="t-stockage">
+        <h2 id="t-stockage">Stockage de données</h2>
+        <ul>
+          {STOCKAGE.map((p) => (
+            <li>
+              <strong>{p.nom}</strong> — {p.role}. {p.adresse}.
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section aria-labelledby="t-donnees">
+        <h2 id="t-donnees">Données personnelles</h2>
+        <ul>
+          <li>Le site ne dépose aucun cookie et ne mesure pas son audience.</li>
+          <li>Comme tout hébergeur, Cloudflare traite l’adresse IP des visiteurs pour leur envoyer les pages.</li>
+          <li>
+            Une proposition de panneau est une issue GitHub publique, liée au compte GitHub de son auteur ;
+            un panneau publié porte la signature choisie par son auteur.
+          </li>
+          <li>
+            Le journal de diffusion du mode kiosque (<code>/live/?journal=1</code>) reste dans le navigateur
+            de l’écran et n’est jamais transmis.
+          </li>
+          <li>Les messages envoyés à l’adresse de contact servent uniquement à y répondre.</li>
+        </ul>
+        <p>
+          Pour accéder à vos données, les faire rectifier ou effacer, écrivez à
+          <a href={`mailto:${EDITEUR.email}`}>{EDITEUR.email}</a>. Vous pouvez aussi saisir la CNIL.
+        </p>
+      </section>
+
+      <section aria-labelledby="t-contenus">
+        <h2 id="t-contenus">Contenus et signalement</h2>
+        <p>
+          Les panneaux sont relus avant publication, selon la
+          <a href={`${DEPOT_URL}/blob/main/MODERATION.md`}>charte de modération</a>, qui explique aussi
+          comment signaler un panneau publié.
+        </p>
+        <p>
+          Code sous <a href={`${DEPOT_URL}/blob/main/LICENSE`}>licence MIT</a> ; contenus des panneaux sous
+          <a href={`${DEPOT_URL}/blob/main/LICENSES/CC-BY-4.0.txt`}>licence Creative Commons Attribution 4.0</a>.
+        </p>
+      </section>
+
+      <p><a href="/" class="legal-retour">← Retour au mur</a></p>
+    </div>
+  </main>
+</Layout>
+
+<style>
+  .legal {
+    min-height: 100vh;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    padding: 4rem 1.5rem;
+    box-sizing: border-box;
+  }
+
+  .legal-inner {
+    max-width: 44rem;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    line-height: 1.6;
+  }
+
+  h1 {
+    font-size: clamp(2rem, 5vw, 3rem);
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    margin: 0 0 0.5rem;
+  }
+
+  h2 {
+    font-size: 1.25rem;
+    font-weight: 800;
+    margin: 0 0 0.75rem;
+  }
+
+  p,
+  ul,
+  dl {
+    margin: 0 0 0.5rem;
+  }
+
+  ul {
+    padding-left: 1.25rem;
+  }
+
+  li + li {
+    margin-top: 0.4rem;
+  }
+
+  /* Même gris que les textes secondaires de /verifier/ (0.75 sur le fond). */
+  .legal-maj,
+  dt {
+    color: rgba(248, 250, 252, 0.75);
+  }
+
+  .legal-maj {
+    font-size: 0.85rem;
+    margin: 0;
+  }
+
+  dl {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 0.35rem 1rem;
+  }
+
+  dt {
+    font-size: 0.9rem;
+  }
+
+  dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  a {
+    color: var(--accent);
+  }
+
+  a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 480px) {
+    .legal {
+      padding: 2.5rem 1rem;
+    }
+
+    dl {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.1rem;
+    }
+
+    dd + dt {
+      margin-top: 0.5rem;
+    }
+  }
+</style>
