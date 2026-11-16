@@ -571,8 +571,13 @@ const sealSvg = generateSealSvg(fingerprint, accent, 96);
     margin-top: 0.25rem;
   }
 
+  /* min-height : la cible faisait 14 px de haut, sous les 24 px de
+     WCAG 2.5.8. inline-flex centre le libellé dans la cible agrandie. */
   .qrcode-downloads .download-btn {
     white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
   }
 
   .download-btn {
