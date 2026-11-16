@@ -21,6 +21,14 @@ export interface BillboardItem {
   accentColor?: string;
   /** Date de publication ISO 8601 — utilisée par les feeds, le sitemap et le JSON-LD. */
   date?: string;
+  /**
+   * Début de la période de diffusion (ISO 8601, inclus). Appliqué à l'affichage
+   * — /live et rotation hebdomadaire —, jamais au build : voir
+   * scripts/lib/programmation.mjs. Hors empreinte d'authenticité.
+   */
+  startDate?: string;
+  /** Fin de la période de diffusion (ISO 8601 ; un jour seul couvre la journée UTC entière). */
+  endDate?: string;
 }
 
 export interface SocialProfile {

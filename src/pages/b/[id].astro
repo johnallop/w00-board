@@ -7,6 +7,7 @@ import type { BillboardItem } from '../../types/config';
 import { generateQrCodeSvg } from '../../utils/qrcode';
 import { computeFingerprint, formatFingerprint } from '../../utils/posterHash';
 import { generateSealSvg } from '../../utils/posterSeal';
+import { libellePeriode } from '../../../scripts/lib/programmation.mjs';
 
 validateConfig(rawConfig);
 
@@ -32,6 +33,8 @@ const description = `« ${board.message} » — signé par ${board.author}. Pann
 const displayDate = board.date
   ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(board.date))
   : undefined;
+// Période de diffusion (startDate/endDate) : libellé statique, même règle UTC.
+const periode = libellePeriode(board);
 
 const siteUrl = Astro.site?.toString().replace(/\/$/, '') || 'https://board.wooddyviat.com';
 const boardUrl = `${siteUrl}/b/${board.id}/`;
@@ -76,6 +79,7 @@ const sealSvg = generateSealSvg(fingerprint, accent, 96);
       )}
 
       {displayDate && <p class="poster-date">Publié le {displayDate}</p>}
+      {periode && <p class="poster-date">{periode}</p>}
 
       {/*
         Sceau d'authenticité. Le SVG vient de generateSealSvg() : il est

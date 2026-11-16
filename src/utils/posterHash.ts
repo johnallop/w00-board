@@ -38,6 +38,12 @@ export function canonicalizeBillboard(board: BillboardItem): string {
   // couleur, une date ou des tags, le sceau doit les couvrir. Conséquence
   // assumée : une retouche cosmétique produit un nouveau sceau.
   //
+  // EXCEPTION : `startDate` / `endDate`. Ils disent QUAND l'affiche est
+  // diffusée, pas ce qu'elle dit ; les ajouter aux positions fixes changerait
+  // l'empreinte de TOUS les panneaux, y compris ceux sans période, et
+  // invaliderait chaque sceau déjà publié ou cité. Prolonger une campagne ne
+  // crée donc pas de nouvelle version de l'affiche.
+  //
   // Encodage : tableau JSON à positions fixes. `JSON.stringify` échappe
   // lui-même guillemets et antislashs, donc un message contenant `","` ne peut
   // pas usurper le champ suivant — l'encodage est injectif, sans séparateur

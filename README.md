@@ -44,6 +44,8 @@ Tout le contenu et l'apparence sont contrôlés par **`src/data/config.json`** :
 
 Chaque panneau du tableau `billboards[]` possède : `id` (slug URL, unique), `message`, `author`, et en option `tags` (affichés et convertis en hashtags à la diffusion), `accentColor` (surcharge la couleur d'accent du thème pour ce panneau) et `date` (ISO 8601 — fuseau **obligatoire** si une heure est présente, pour un build reproductible ; utilisée comme date de publication dans les flux et le sitemap).
 
+**Période de diffusion** — `startDate` et `endDate`, facultatifs, même format que `date`. Un jour seul s'entend en UTC, et `endDate` le couvre en entier (`"endDate": "2026-12-15"` diffuse jusqu'au 16 à 00:00 UTC). Hors période, le panneau n'est plus montré par le mode kiosque `/live` ni tiré par la rotation hebdomadaire ; sa page `/b/<id>/` reste en ligne et affiche la période. Le filtrage se fait à l'affichage, jamais au build (qui reste reproductible) ; sans JavaScript, `/live` montre le premier panneau comme avant. Limites : la diffusion sociale part toujours à la fusion de la config, même pour une période future, et le mur, les flux et le sitemap listent tous les panneaux. Ces deux champs ne font pas partie de l'empreinte d'authenticité : prolonger une campagne ne change pas son sceau.
+
 ### Comptes sociaux associés (optionnel)
 
 La clé `social` relie le panneau à ses comptes publics. Ils apparaissent dans le pied de page de chaque page (liens `rel="me"`, qui permettent par exemple à Mastodon d'afficher le site comme vérifié sur le profil), dans le JSON-LD (`sameAs`) et dans `llms.txt`. Absente ou vide, rien ne s'affiche.

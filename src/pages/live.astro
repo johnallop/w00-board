@@ -3,10 +3,15 @@ import Layout from '../layouts/Layout.astro';
 import config from '../data/config.json';
 import { validateConfig } from '../utils/validateConfig';
 import { cssFitFactor } from '../utils/fitText';
+import type { BillboardItem } from '../types/config';
 
 validateConfig(config);
 
-const { billboards, theme } = config;
+// Typé par le contrat et non par le JSON importé : le type déduit de
+// config.json ne connaît que les champs présents dans CE fichier, pas les
+// optionnels (startDate/endDate) qu'un panneau peut déclarer.
+const billboards: BillboardItem[] = config.billboards;
+const { theme } = config;
 const globalAccent = theme.accentColor;
 
 export const prerender = true;
@@ -56,6 +61,8 @@ export const prerender = true;
             class={`live-slide ${index === 0 ? 'active' : ''}`}
             data-id={board.id}
             data-index={index}
+            data-start={board.startDate}
+            data-end={board.endDate}
             style={`--slide-accent: ${accent}; --fit: ${cssFitFactor(board.message)}`}
             role="group"
             aria-roledescription="diapositive"
@@ -86,6 +93,14 @@ export const prerender = true;
           </div>
         );
       })}
+
+      {/* Aucun panneau en période de diffusion (startDate/endDate) : le
+          kiosque le dit au lieu de montrer une campagne terminée ou à venir.
+          Affiché par le script seulement ; sans JS, pas d'horloge, donc pas de
+          tri — le premier panneau reste affiché, comme avant. */}
+      <div class="live-empty" id="live-empty" hidden>
+        <p class="live-empty-text">Aucun panneau programmé en ce moment.</p>
+      </div>
     </div>
 
     <!-- Contrôles et UI de progression -->
@@ -96,7 +111,7 @@ export const prerender = true;
            « Panneau 2 / 2 » toutes les 8 s, sans fin. Le script bascule la
            valeur ; sans JS, rien ne tourne et l'indicateur reste muet. -->
       <div class="status-indicator" id="status-indicator" aria-live="off">
-        Panneau <span id="current-index-txt">1</span> / {billboards.length}
+        Panneau <span id="current-index-txt">1</span> / <span id="total-txt">{billboards.length}</span>
         <span id="paused-txt" class="paused-badge" hidden> (En pause)</span>
       </div>
 
@@ -155,6 +170,8 @@ export const prerender = true;
 
 <script>
   // Script compilé et sécurisé par Astro (conforme CSP)
+  import { estEnDiffusion } from '../../scripts/lib/programmation.mjs';
+
   const container = document.getElementById('live-container') as HTMLElement | null;
   const slides = document.querySelectorAll<HTMLElement>('.live-slide');
   const progressBar = document.getElementById('progress-bar') as HTMLElement | null;
@@ -163,6 +180,22 @@ export const prerender = true;
   const playPauseBtn = document.getElementById('play-pause-btn') as HTMLButtonElement | null;
   const playIcon = document.getElementById('play-icon');
   const pauseIcon = document.getElementById('pause-icon');
+  const totalTxt = document.getElementById('total-txt');
+  const emptyState = document.getElementById('live-empty');
+
+  /*
+   * Diapositives en période de diffusion À CET INSTANT (startDate/endDate).
+   * Recalculé à chaque transition, pas une fois au chargement : un kiosque
+   * tourne des jours, et une campagne commence ou finit pendant qu'il tourne.
+   * La règle vit dans scripts/lib/programmation.mjs, la même que celle de la
+   * rotation hebdomadaire.
+   */
+  function indicesDiffusables(): number[] {
+    const maintenant = new Date();
+    return Array.from(slides).flatMap((s, i) =>
+      estEnDiffusion({ startDate: s.dataset.start, endDate: s.dataset.end }, maintenant) ? [i] : []
+    );
+  }
 
   if (container && slides.length > 0) {
     const params = new URLSearchParams(window.location.search);
@@ -175,15 +208,14 @@ export const prerender = true;
     const dwellTime = Math.min(3600, Math.max(3, isNaN(dwellSeconds) ? 8 : dwellSeconds)) * 1000;
     container.style.setProperty('--dwell-time', `${dwellTime}ms`);
 
+    // `?board=` n'est honoré que si ce panneau est en diffusion : le kiosque
+    // ne montre pas une campagne terminée parce qu'un lien la nomme.
+    // L'aperçu d'un panneau hors période reste possible sur /b/<id>/.
     const initialBoardId = params.get('board');
-    let currentIndex = 0;
-    
-    if (initialBoardId) {
-      const foundIndex = Array.from(slides).findIndex(s => s.dataset.id === initialBoardId);
-      if (foundIndex !== -1) {
-        currentIndex = foundIndex;
-      }
-    }
+    const auDemarrage = indicesDiffusables();
+    const demande = initialBoardId ? Array.from(slides).findIndex((s) => s.dataset.id === initialBoardId) : -1;
+    let currentIndex = auDemarrage.includes(demande) ? demande : (auDemarrage[0] ?? 0);
+    let verificationId: number | null = null;
 
     let isPlaying = true;
     let timerId: number | null = null;
@@ -201,9 +233,11 @@ export const prerender = true;
     }
 
     // Initialisation
-    showSlide(currentIndex);
+    if (auDemarrage.length > 0) showSlide(currentIndex);
+    else afficherVide();
 
     function showSlide(index: number) {
+      if (emptyState) emptyState.hidden = true;
       slides.forEach((slide, idx) => {
         const isActive = idx === index;
         slide.classList.toggle('active', isActive);
@@ -212,9 +246,13 @@ export const prerender = true;
 
       currentIndex = index;
 
+      // Position et total comptés parmi les panneaux EN DIFFUSION, pas parmi
+      // tous ceux du build : « 2 / 5 » quand 3 sont hors période mentirait.
+      const diffusables = indicesDiffusables();
       if (currentIndexTxt) {
-        currentIndexTxt.textContent = (currentIndex + 1).toString();
+        currentIndexTxt.textContent = String(Math.max(1, diffusables.indexOf(index) + 1));
       }
+      if (totalTxt) totalTxt.textContent = String(diffusables.length);
 
       // Réinitialiser la barre de progression
       if (progressBar && isPlaying && !prefersReducedMotion) {
@@ -248,13 +286,40 @@ export const prerender = true;
     }
 
     function nextSlide() {
-      const nextIdx = (currentIndex + 1) % slides.length;
-      showSlide(nextIdx);
+      const diffusables = indicesDiffusables();
+      if (diffusables.length === 0) return afficherVide();
+      showSlide(diffusables.find((i) => i > currentIndex) ?? diffusables[0]);
     }
 
     function prevSlide() {
-      const prevIdx = (currentIndex - 1 + slides.length) % slides.length;
-      showSlide(prevIdx);
+      const diffusables = indicesDiffusables();
+      if (diffusables.length === 0) return afficherVide();
+      showSlide([...diffusables].reverse().find((i) => i < currentIndex) ?? diffusables[diffusables.length - 1]);
+    }
+
+    /*
+     * Plus aucun panneau en diffusion : on le dit, et on revérifie chaque
+     * minute — une campagne peut commencer pendant que l'écran est allumé, et
+     * personne ne sera là pour recharger la page.
+     */
+    function afficherVide() {
+      clearTimer();
+      slides.forEach((slide) => {
+        slide.classList.remove('active');
+        slide.setAttribute('aria-hidden', 'true');
+      });
+      if (emptyState) emptyState.hidden = false;
+      if (currentIndexTxt) currentIndexTxt.textContent = '0';
+      if (totalTxt) totalTxt.textContent = '0';
+      progressBar?.classList.remove('animating');
+      if (verificationId !== null) return;
+      verificationId = window.setInterval(() => {
+        const diffusables = indicesDiffusables();
+        if (diffusables.length === 0) return;
+        if (verificationId !== null) window.clearInterval(verificationId);
+        verificationId = null;
+        showSlide(diffusables[0]);
+      }, 60_000);
     }
 
     function startTimer(time: number) {
@@ -416,6 +481,27 @@ export const prerender = true;
   .live-slide.active {
     opacity: 1;
     visibility: visible;
+  }
+
+  .live-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    text-align: center;
+  }
+
+  .live-empty[hidden] {
+    display: none;
+  }
+
+  .live-empty-text {
+    margin: 0;
+    font-size: clamp(1.25rem, 4vw, 2.5rem);
+    font-weight: 700;
+    color: var(--text);
   }
 
   /* Halo coloré dynamique lié à la couleur d'accent du panneau */

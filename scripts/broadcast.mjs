@@ -102,7 +102,7 @@ async function main() {
     // Calcul automatique du panneau de la semaine
     const weeklyBoard = heartbeatBoard(currConfig.billboards, new Date());
     if (!weeklyBoard) {
-      console.log('Le mur est vide, aucun heartbeat à envoyer.');
+      console.log('Aucun panneau en période de diffusion (mur vide ou hors startDate/endDate), aucun heartbeat à envoyer.');
       process.exit(0);
     }
     targetId = weeklyBoard.id;
