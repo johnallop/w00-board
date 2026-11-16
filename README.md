@@ -193,11 +193,30 @@ Le site reste 100 % statique, sans compte ni base de données : la proposition p
 
 Le propriétaire du dépôt peut aussi utiliser « Télécharger config.json » sur la même page pour publier sans passer par la modération.
 
+Ce qui est refusé, comment, et ce qu'un retrait peut ou non effacer : voir la [charte de modération](MODERATION.md) et le [registre de conformité](REGISTRE-MODERATION.md).
+
+Cycle de vie d'une proposition — GitHub tient lieu d'état, aucun champ `status` dans la config :
+
+| État | Où il se lit |
+|---|---|
+| Brouillon | Saisie dans `/creer/`, rien n'est envoyé |
+| En attente de relecture | Issue ouverte, label `proposition-panneau` |
+| Validée | Label `panneau-approuve` → pull request ouverte par `propose.yml` |
+| Refusée | Label `panneau-refuse` + un label `refus-*`, issue fermée « not planned » |
+| Publiée | Pull request fusionnée |
+| Retirée | Panneau ôté de `config.json`, ligne dans le registre |
+
 Mise en place, une seule fois :
 
 ```bash
 gh label create proposition-panneau --description "Panneau proposé depuis /creer/" --color 38bdf8
 gh label create panneau-approuve --description "Approuvé : ouvre la PR d'ajout" --color 22c55e
+gh label create panneau-refuse --description "Refusé : voir le label de motif" --color b91c1c
+gh label create refus-haine-violence --description "Motif : haine, discrimination, violence, harcèlement" --color 7f1d1d
+gh label create refus-illegal --description "Motif : autre contenu manifestement illicite" --color 7f1d1d
+gh label create refus-donnees-personnelles --description "Motif : donnée personnelle" --color 7f1d1d
+gh label create refus-publicite-spam --description "Motif : publicité, sollicitation, spam" --color 7f1d1d
+gh label create refus-usurpation --description "Motif : fausse signature ou information trompeuse" --color 7f1d1d
 ```
 
 Puis **Settings → Actions → General → « Allow GitHub Actions to create and approve pull requests »**. Limite connue : une PR ouverte par `GITHUB_TOKEN` ne déclenche pas `deploy.yml` ni `lighthouse.yml` ; fermer puis rouvrir la PR relance la CI complète.
@@ -289,3 +308,8 @@ W00_REQUIRE_DIST=1 npm run test:dist   # échoue si dist/ manque, au lieu de sau
 ```
 
 C'est le mode utilisé par `deploy.yml` après le build. Sans le drapeau, un `dist/` absent rendrait ces tests verts par omission — le pire des résultats, puisqu'il rassure.
+
+## Licence
+
+- **Code** : [MIT](LICENSE).
+- **Contenus des panneaux** (messages, signatures, affiches générées) : [Creative Commons Attribution 4.0](LICENSES/CC-BY-4.0.txt) — réutilisables à condition de citer l'auteur, c'est-à-dire la signature du panneau. Proposer un panneau vaut accord pour cette licence (voir la [charte de modération](MODERATION.md)).
