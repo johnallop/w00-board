@@ -102,6 +102,12 @@ const { theme } = config;
           propriétaire du dépôt, qui peut publier sans passer par la modération. Un mainteneur approuve une
           proposition en posant le label <code>{LABEL_APPROBATION}</code>.
         </p>
+        <p class="aide">
+          Avant de proposer : un panneau publié ne peut pas être entièrement effacé. Il reste dans
+          l'historique public du dépôt, sur IPFS, dans les archives du web et sur les réseaux où il a été
+          diffusé. En proposant, vous acceptez sa publication sous licence CC BY 4.0, avec votre signature.
+          <a href={`${DEPOT_URL}/blob/main/MODERATION.md`}>Charte de modération</a>.
+        </p>
       </form>
 
       <section class="apercu" aria-labelledby="apercu-titre">
@@ -371,7 +377,8 @@ const { theme } = config;
     margin-bottom: 2rem;
   }
 
-  .creer-sans-js a {
+  .creer-sans-js a,
+  .aide a {
     color: var(--accent);
   }
 
@@ -435,7 +442,8 @@ const { theme } = config;
   input:focus-visible,
   textarea:focus-visible,
   .bouton:focus-visible,
-  .creer-retour:focus-visible {
+  .creer-retour:focus-visible,
+  .aide a:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
