@@ -2,10 +2,13 @@
 import Layout from '../layouts/Layout.astro';
 import config from '../data/config.json';
 import { validateConfig } from '../utils/validateConfig';
+import type { BillboardItem } from '../types/config';
+import { libellePeriode } from '../../scripts/lib/programmation.mjs';
 
 validateConfig(config);
 
-const { billboards, theme } = config;
+const { theme } = config;
+const billboards: BillboardItem[] = config.billboards;
 const { backgroundColor: bgColor, textColor, accentColor: globalAccent, fontFamily } = theme;
 
 const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
@@ -66,11 +69,14 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
       <div class="board-grid" id="board-grid" role="list">
         {billboards.map((board, i) => {
           const accent = board.accentColor || globalAccent;
+          const periode = libellePeriode(board);
           return (
             <article
               class="billboard-card"
               role="listitem"
               data-tags={JSON.stringify(board.tags ?? [])}
+              data-start={board.startDate}
+              data-end={board.endDate}
               style={`--card-accent: ${accent}; --i: ${i}`}
             >
               <!-- Lien enveloppant : les puces de tag repassent au-dessus via z-index.
@@ -86,7 +92,7 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
                 <header class="card-top">
                   <div class="live-pill">
                     <span class="live-dot" aria-hidden="true"></span>
-                    <span>Live</span>
+                    <span class="live-pill-text">Live</span>
                   </div>
                   {board.accentColor && board.accentColor !== globalAccent && (
                     <div class="accent-swatch" style={`background: ${board.accentColor}`} aria-hidden="true"></div>
@@ -97,6 +103,7 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
 
                 <footer class="card-footer">
                   <span class="card-author">— {board.author}</span>
+                  {periode && <span class="card-periode">{periode}</span>}
                   {board.tags && board.tags.length > 0 && (
                     <div class="card-tags" aria-label="Tags">
                       {board.tags.map(tag => (
@@ -141,6 +148,27 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
 </Layout>
 
 <script>
+  import { etatDeDiffusion } from '../../scripts/lib/programmation.mjs';
+
+  /*
+   * Période de diffusion : le build ne lit pas l'heure (CID reproductible,
+   * voir programmation.mjs), c'est donc le navigateur qui dit si un panneau
+   * est à venir ou terminé. Le mur est aussi une archive : la carte reste
+   * visible, seul son badge change. Sans JS, la période reste écrite en clair.
+   */
+  const LIBELLES_ETAT = { 'a-venir': 'À venir', terminee: 'Terminé' } as const;
+  const maintenant = new Date();
+  document.querySelectorAll<HTMLElement>('.billboard-card').forEach((card) => {
+    const etat = etatDeDiffusion(
+      { startDate: card.dataset.start, endDate: card.dataset.end },
+      maintenant,
+    );
+    if (etat === 'en-cours') return;
+    card.dataset.etat = etat;
+    const texte = card.querySelector('.live-pill-text');
+    if (texte) texte.textContent = LIBELLES_ETAT[etat];
+  });
+
   const filterBtns = document.querySelectorAll<HTMLButtonElement>('.filter-btn');
   const cards = document.querySelectorAll<HTMLElement>('.billboard-card');
   const emptyState = document.getElementById('empty-state');
@@ -540,6 +568,11 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
     will-change: transform, opacity;
   }
 
+  /* Hors période : pas de point pulsé — « Live » serait un mensonge. */
+  .billboard-card[data-etat] .live-dot {
+    display: none;
+  }
+
   .accent-swatch {
     width: 12px;
     height: 12px;
@@ -581,6 +614,12 @@ const allTags = [...new Set(billboards.flatMap(b => b.tags ?? []))];
     font-size: 0.85rem;
     color: var(--card-accent);
     font-weight: 600;
+  }
+
+  /* Même gris que .live-pill, déjà lisible sur le fond de carte. */
+  .card-periode {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.6);
   }
 
   .card-tags {
