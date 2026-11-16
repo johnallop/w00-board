@@ -99,7 +99,7 @@ un auteur, des tags et une couleur d'accent optionnelle.
 Chaque modification du fichier de configuration déclenche via GitHub Actions :
 1. Reconstruction du site statique (Astro build)
 2. Déploiement sur Cloudflare Pages (CDN mondial)
-3. Épinglage sur IPFS (pin Storacha + publication IPNS, nom stable)
+3. Épinglage sur IPFS (pin Filebase + publication IPNS, nom stable)
 4. Publication automatique sur Mastodon / Fediverse (premier panneau)
 5. Publication automatique sur Bluesky (AT Protocol)
 6. Publication automatique sur Nostr (protocole décentralisé)

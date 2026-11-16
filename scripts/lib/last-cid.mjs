@@ -19,7 +19,7 @@
  * renverraient une erreur de récupération.
  *
  * Le heartbeat ne calcule donc plus rien. CIDS.log, écrit par deploy.yml APRÈS
- * un `w3 up` réussi, est la seule attestation qu'un CID est épinglé ; c'est elle
+ * un épinglage vérifié, est la seule attestation qu'un CID est épinglé ; c'est elle
  * qui fait autorité. Ce module la lit, et refuse plutôt que de deviner.
  *
  * FORMAT (deploy.yml, étape « Tracer le CID sur la branche ipfs-history ») :
@@ -81,7 +81,7 @@ export function dernierCidConnu(contenu) {
   if (lignes.length === 0) {
     return echec('vide', 'CIDS.log ne contient aucune entrée épinglée.', [
       'Aucun déploiement n’a encore atteint l’étape « Tracer le CID ».',
-      'Il n’y a donc pas d’enregistrement IPNS à rafraîchir.',
+      'Il n’y a donc pas d’enregistrement IPNS à surveiller.',
     ]);
   }
 

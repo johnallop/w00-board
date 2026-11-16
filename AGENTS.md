@@ -31,9 +31,9 @@ Le projet est construit autour de :
 - **Tests unitaires** pour les règles de validation, d’alignement, de rotation et de diff de configuration.
 - **Cloudflare Pages** comme cible de déploiement (surveille `main`, déploie sur `w00-board.pages.dev`, servi sous le domaine `board.wooddyviat.com`), avec compatibilité conservée pour tout hébergement statique.
 - **Quatre workflows GitHub Actions** :
-  - `deploy.yml` : tests, build, publication IPFS (Storacha + IPNS) et pings de découverte (IndexNow, WebSub, Wayback Machine).
+  - `deploy.yml` : tests, build, publication IPFS (Filebase : épinglage + IPNS) et pings de découverte (IndexNow, WebSub, Wayback Machine).
   - `broadcast.yml` : diffusion automatique multi-protocoles (Mastodon, Bluesky, Nostr, Telegram, Discord) au changement de configuration, avec orchestrateur Node.js.
-  - `heartbeat.yml` : repost hebdomadaire sans état (rotation automatique du panneau de la semaine) et rafraîchissement régulier du pointeur IPNS.
+  - `heartbeat.yml` : repost hebdomadaire sans état (rotation automatique du panneau de la semaine) et surveillance quotidienne du pointeur IPNS (alerte à moins de 24 h d’expiration).
   - `lighthouse.yml` : audit de performance, accessibilité et SEO.
 
 

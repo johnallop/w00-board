@@ -1,38 +1,43 @@
 /**
- * Relecture après publication IPNS : le nom désigne-t-il vraiment ce qu'on
- * vient de signer ?
+ * Relecture après publication IPNS sur Filebase : le nom désigne-t-il vraiment
+ * ce qu'on vient de publier, et le réseau le voit-il ?
  *
- * `Name.publish` peut échouer — ou pire, sembler réussir — sans que rien ne
- * l'indique. L'étape « Publier IPNS » de deploy.yml porte `continue-on-error`
- * (à raison : un miroir muet ne doit pas casser un déploiement réussi), donc
- * son code de retour ne se voit nulle part. Le pin réussit, CIDS.log enregistre
- * le CID, le résumé annonce fièrement une URL IPNS — et le nom peut continuer
- * à désigner l'avant-dernier contenu.
+ * L'étape « Publier IPNS » de deploy.yml porte `continue-on-error` (à raison :
+ * un miroir muet ne doit pas casser un déploiement réussi), donc son code de
+ * retour ne se voit nulle part. D'où une relecture qui rend un verdict
+ * explicite, affiché dans le résumé de job, succès comme échec.
  *
- * DEUX contrôles, parce qu'un seul est aveugle à la moitié des cas :
+ * TROIS contrôles, parce que chacun est aveugle à un cas que l'autre voit :
  *
- *   1. LA VALEUR. `/ipfs/<CID>` relu doit être celui qu'on vient de signer.
- *      Suffisant quand le CID change (chaque push de deploy.yml).
+ *   1. L'API. L'entrée relue doit porter le nom public du site (network_key =
+ *      IPNS_NAME de src/data/ipfs.ts) et le CID qu'on vient de publier.
  *
- *   2. LA SÉQUENCE. Le heartbeat hebdomadaire republie le MÊME CID pour garder
- *      l'enregistrement chaud (validité ~1 an côté w3name). Là, la valeur relue
- *      est identique que la publication ait abouti ou non : le contrôle 1 est
- *      VERT PAR CONSTRUCTION, et `Name.publish` pourrait échouer toutes les
- *      semaines pendant un an avant que le nom n'expire pour de bon. Le numéro
- *      de séquence est le seul discriminant entre « republié » et « inchangé ».
+ *   2. LA SÉQUENCE. Filebase accepte un PUT (HTTP 200) sans republier quand le
+ *      CID est inchangé (mesuré le 2026-11-15 : séquence 1 → 1, enregistrement
+ *      réseau identique). Une réponse 200 et un CID relu conformes ne prouvent
+ *      donc pas qu'un enregistrement neuf a été signé : seule une séquence qui
+ *      avance le prouve.
  *
- * Piège mesuré : `revision.sequence` est un **BigInt**. `seq === 1` vaut `false`
- * là où `seq == 1` vaut `true`, et `JSON.stringify` lève sur un BigInt. D'où la
- * normalisation systématique ci-dessous plutôt qu'une comparaison directe.
+ *   3. LA PASSERELLE. Le nom doit se résoudre sur le réseau vers ce CID
+ *      (en-tête X-Ipfs-Roots de ipfs.filebase.io). C'est la leçon de w3name :
+ *      son API relisait un enregistrement « conforme » que ni la passerelle
+ *      Filebase ni le routage IPFS ne trouvaient (constaté le 2026-11-15).
+ *      Une relecture par la seule API du publieur ne prouve pas que le nom
+ *      marche.
  *
- * Fonction pure, sans I/O — testée dans src/tests/ipnsVerdict.test.ts, parce que
- * `Name.publish` ne peut pas l'être : publier depuis un poste de développement
- * écrirait sur le vrai nom public du site.
+ * Tout écart bloque : la différence d'urgence entre les cas vit dans `details`,
+ * à destination de l'humain qui lit le résumé, pas dans un niveau de gravité
+ * qu'un code finirait par brancher sur une décision.
+ *
+ * Fonctions pures, sans I/O — testées dans src/tests/ipnsVerdict.test.ts.
  */
+
+/** CIDv1 base32 tel que produit par ipfs-car. */
+const CID_V1_BASE32 = /^bafy[a-z2-7]{50,}$/;
 
 /**
  * Ramène une séquence à un BigInt, quelle que soit sa représentation d'origine
- * (BigInt côté w3name, Number ou string ailleurs).
+ * (Number dans le JSON de l'API, string ou BigInt ailleurs).
  *
  * @returns {bigint | null} null si la valeur n'est pas un entier naturel exploitable
  */
@@ -43,109 +48,104 @@ export function versSequence(valeur) {
   return null;
 }
 
-/*
- * POURQUOI IL N'Y A PAS DE NIVEAU DE GRAVITÉ.
+/**
+ * CID racine servi par une passerelle, lu dans l'en-tête X-Ipfs-Roots.
  *
- * Ce module a porté un temps une fonction `graviteDeLEcart(code)` censée
- * distinguer deux urgences :
+ * La passerelle liste les racines du chemin résolu, de la racine du site vers
+ * le fichier demandé (mesuré le 2026-11-15 sur /ipns/<nom>/build.json :
+ * `<CID du site>,<CID de build.json>`). Seule la première désigne le site.
  *
- *   'valeur'   — le nom pointe vers un AUTRE contenu que celui qu'on vient
- *                d'épingler. Visible par les visiteurs du miroir, maintenant.
- *   'sequence' — le nom pointe vers le BON contenu, mais l'enregistrement n'a
- *                pas été rafraîchi. Rien de cassé aujourd'hui ; l'enregistrement
- *                expire dans ~1 an.
- *
- * La distinction est juste, et la conclusion qu'on en tire naturellement —
- * « donc 'sequence' ne devrait pas bloquer » — est fausse. 'sequence' est le
- * signal PROPRE du heartbeat : c'est le seul code que ce workflow puisse
- * produire quand `Name.publish` échoue, puisqu'il republie le même CID et que
- * la valeur relue reste donc conforme (voir l'en-tête de ce fichier, contrôle
- * 2). Le rendre non bloquant remettrait le heartbeat exactement dans l'état
- * qu'il a été écrit pour supprimer : vert toutes les semaines pendant un an,
- * jusqu'à expiration réelle du nom.
- *
- * Le champ `gravite` renvoyé avec le verdict n'était par ailleurs lu nulle
- * part — ni par update-ipns.mjs, ni par les tests, ni par les deux workflows.
- * Un champ calculé que personne ne consulte finit par se faire brancher un jour
- * sur une décision, par quelqu'un qui n'aura pas relu l'en-tête. Il est donc
- * supprimé plutôt que laissé en attente : la règle est « tout écart bloque »,
- * et c'est une conclusion, pas un placeholder.
- *
- * La différence d'urgence n'est pas perdue pour autant — elle vit dans
- * `details`, à destination de l'humain qui lit le résumé de job, qui est le
- * seul à pouvoir en faire quelque chose.
+ * @param {string | null | undefined} entete valeur brute de X-Ipfs-Roots
+ * @returns {string | null}
  */
+export function racineServie(entete) {
+  const premiere = String(entete ?? '').split(',')[0].trim();
+  return CID_V1_BASE32.test(premiere) ? premiere : null;
+}
 
 /**
- * Confronte la révision relue à celle qu'on vient de publier.
+ * Confronte l'état relu à ce qu'on vient de publier.
  *
- * @param {{ value?: string, sequence?: unknown }} signe révision signée puis publiée
- * @param {{ value?: string, sequence?: unknown } | null} relu réponse de Name.resolve, ou null si le nom ne résout pas
+ * @param {object} p
+ * @param {string} p.cid CID publié
+ * @param {string} p.nom nom public attendu (IPNS_NAME)
+ * @param {{ sequence?: unknown } | null} p.avant entrée de l'API avant publication (null si absente)
+ * @param {{ network_key?: string, cid?: string, sequence?: unknown, published_at?: string|null } | null} p.apres entrée relue après publication
+ * @param {string | null} p.racine CID servi par la passerelle sous le nom (null si injoignable)
  * @returns {{ ok: boolean, code: string, resume: string, details: string[] }}
  */
-export function verdictDeRelecture(signe, relu) {
-  const attendue = versSequence(signe?.sequence);
-  const attendu = typeof signe?.value === 'string' ? signe.value : '';
-
+export function verdictDeRelecture({ cid, nom, avant, apres, racine }) {
   // Une attente vide ne doit JAMAIS passer pour un succès : ce serait un
-  // contrôle qui se désactive tout seul, exactement le travers que
-  // check-cid.mjs refuse sur `--expect ""`.
-  if (!attendu || attendue === null) {
+  // contrôle qui se désactive tout seul (même principe que `--expect ""`
+  // dans check-cid.mjs).
+  if (!CID_V1_BASE32.test(String(cid ?? '')) || !nom) {
     return {
       ok: false,
       code: 'invalide',
-      resume: 'Révision signée inexploitable — vérification impossible.',
-      details: [
-        `value signée    : ${JSON.stringify(signe?.value ?? null)}`,
-        `sequence signée : ${String(signe?.sequence)} (${typeof signe?.sequence})`,
-      ],
+      resume: 'Attente inexploitable — vérification impossible.',
+      details: [`cid : ${JSON.stringify(cid ?? null)}`, `nom : ${JSON.stringify(nom ?? null)}`],
     };
   }
 
-  if (!relu) {
+  if (!apres) {
     return {
       ok: false,
       code: 'absent',
-      resume: 'Le nom ne résout pas après publication.',
+      resume: 'Le nom est introuvable dans l’API Filebase.',
+      details: [`attendu : ${nom} → /ipfs/${cid}`, 'Le nom a-t-il été supprimé ou renommé sur Filebase ?'],
+    };
+  }
+
+  if (apres.network_key !== nom) {
+    return {
+      ok: false,
+      code: 'nom',
+      resume: 'Le label Filebase désigne un autre nom public que celui affiché par le site.',
       details: [
-        `attendu : ${attendu} (seq ${attendue})`,
-        'Name.resolve lève « record not found » : rien n’a été enregistré.',
+        `attendu (src/data/ipfs.ts) : ${nom}`,
+        `obtenu (API Filebase)      : ${apres.network_key ?? '(absent)'}`,
+        'Le footer pointerait vers un nom que ce déploiement ne met pas à jour.',
       ],
     };
   }
 
-  const obtenue = versSequence(relu.sequence);
-  const obtenu = typeof relu.value === 'string' ? relu.value : '';
-
-  if (obtenu !== attendu) {
+  if (apres.cid !== cid) {
     return {
       ok: false,
       code: 'valeur',
       resume: 'Le nom IPNS désigne un autre contenu que celui qui vient d’être épinglé.',
       details: [
-        `attendu : ${attendu} (seq ${attendue})`,
-        `obtenu  : ${obtenu || '(vide)'} (seq ${obtenue ?? '?'})`,
+        `attendu : ${cid}`,
+        `obtenu  : ${apres.cid || '(vide)'}`,
         'Les visiteurs du miroir voient une version antérieure du site.',
       ],
     };
   }
 
-  if (obtenue === null || obtenue !== attendue) {
-    // Séquence en retard  → notre publication n'a pas abouti (cas heartbeat).
-    // Séquence en avance  → une autre publication est passée après la nôtre.
-    const sens =
-      obtenue !== null && obtenue > attendue
-        ? 'Une publication concurrente est passée après la nôtre.'
-        : 'La publication n’a pas abouti : l’enregistrement précédent est toujours en place.';
+  const seqAvant = avant ? versSequence(avant.sequence) : null;
+  const seqApres = versSequence(apres.sequence);
+  if (seqApres === null || (seqAvant !== null && seqApres <= seqAvant)) {
     return {
       ok: false,
       code: 'sequence',
-      resume: 'Le contenu pointé est correct, mais l’enregistrement n’a pas été rafraîchi.',
+      resume: 'Le contenu pointé est correct, mais l’enregistrement n’a pas été republié.',
       details: [
-        `séquence attendue : ${attendue}`,
-        `séquence obtenue  : ${obtenue ?? '(illisible)'}`,
-        sens,
-        'La valeur seule ne pouvait pas le voir : le heartbeat republie le même CID.',
+        `séquence avant : ${seqAvant ?? '(aucune)'}`,
+        `séquence après : ${seqApres ?? '(illisible)'}`,
+        'Filebase répond 200 sans republier quand le CID est inchangé (relance d’un même déploiement ?).',
+      ],
+    };
+  }
+
+  if (racine !== cid) {
+    return {
+      ok: false,
+      code: 'passerelle',
+      resume: 'L’API est à jour, mais la passerelle ne sert pas ce CID sous le nom.',
+      details: [
+        `attendu : ${cid}`,
+        `servi   : ${racine ?? '(rien — nom non résolu ou passerelle injoignable)'}`,
+        'Le nom ne marche pas sur le réseau tant que la passerelle ne le résout pas.',
       ],
     };
   }
@@ -153,7 +153,117 @@ export function verdictDeRelecture(signe, relu) {
   return {
     ok: true,
     code: 'ok',
-    resume: `Nom relu et conforme (seq ${attendue}).`,
-    details: [`${attendu} (seq ${attendue})`],
+    resume: `Nom republié et résolu sur le réseau (seq ${seqApres}).`,
+    details: [`${nom} → /ipfs/${cid}`, `publié : ${apres.published_at ?? '(date non fournie)'}`],
+  };
+}
+
+/** Clé CBOR « Validity » : en-tête de chaîne de texte de 8 octets (0x68) + la clé. */
+const CLE_VALIDITE = Buffer.from([0x68, ...Buffer.from('Validity', 'latin1')]);
+const RFC3339_UTC = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?Z$/;
+
+/**
+ * Date d'expiration d'un enregistrement IPNS, lue dans son champ CBOR
+ * `Validity` (chaîne d'octets RFC 3339).
+ *
+ * Seul le format V2 (données CBOR) est lu : c'est celui que Filebase publie
+ * (mesuré le 2026-11-16 via delegated-ipfs.dev : 221 octets, aucun champ V1).
+ * Le reste de l'enregistrement — signature comprise — n'est pas vérifié : on
+ * ne lit qu'une échéance, à seule fin d'alerter avant qu'elle tombe.
+ *
+ * @param {Uint8Array | null | undefined} octets enregistrement brut
+ *   (`application/vnd.ipfs.ipns-record`)
+ * @returns {Date | null} null si l'enregistrement est absent ou illisible
+ */
+export function validiteDuRecord(octets) {
+  if (!octets || octets.length === 0) return null;
+  const tampon = Buffer.from(octets);
+  const i = tampon.indexOf(CLE_VALIDITE);
+  if (i === -1) return null;
+
+  // Valeur : chaîne d'octets CBOR (type majeur 2), longueur dans l'en-tête
+  // (0x40-0x57) ou sur l'octet suivant (0x58).
+  let pos = i + CLE_VALIDITE.length;
+  const entete = tampon[pos++];
+  let longueur;
+  if (entete >= 0x40 && entete <= 0x57) longueur = entete - 0x40;
+  else if (entete === 0x58 && pos < tampon.length) longueur = tampon[pos++];
+  else return null;
+  if (pos + longueur > tampon.length) return null;
+
+  // Filebase écrit des nanosecondes (« .729000000Z ») : on tronque à la
+  // milliseconde plutôt que de dépendre de la tolérance de Date.parse.
+  const m = tampon.subarray(pos, pos + longueur).toString('latin1').match(RFC3339_UTC);
+  if (!m) return null;
+  const date = new Date(`${m[1]}.${(m[2] ?? '').padEnd(3, '0').slice(0, 3)}Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * Surveillance quotidienne (heartbeat) : le nom désigne-t-il toujours le
+ * dernier CID épinglé, et lui reste-t-il assez de validité ?
+ *
+ * Le heartbeat ne publie plus : un PUT au même CID est ignoré par Filebase
+ * (voir contrôle 2 ci-dessus), il ne peut donc pas prolonger l'enregistrement.
+ * C'est Filebase qui le re-signe de lui-même, séquence inchangée et échéance
+ * repoussée (mesuré : enregistrement créé le 2026-11-15 à 05:46 UTC, re-signé
+ * le 2026-11-16 à 00:00:21 UTC). Ce renouvellement n'est pas documenté : on
+ * vérifie qu'il a lieu, et on alerte AVANT l'échéance s'il cesse.
+ *
+ * Un cache du routage délégué peut servir un enregistrement plus ancien
+ * (constaté une fois, ~5 min) : l'échéance lue est alors plus proche que la
+ * vraie. L'erreur ne peut aller que vers une alerte, jamais vers un faux vert.
+ *
+ * Reprend les contrôles API et passerelle de verdictDeRelecture (sans
+ * séquence de référence : rien n'a été publié), puis ajoute l'échéance lue
+ * dans l'enregistrement que le routage IPFS distribue — pas dans l'API du
+ * publieur, pour la même raison que le contrôle 3.
+ *
+ * @param {object} p
+ * @param {string} p.cid dernier CID épinglé (CIDS.log)
+ * @param {string} p.nom nom public attendu (IPNS_NAME)
+ * @param {object | null} p.entree entrée relue dans l'API Filebase
+ * @param {string | null} p.racine CID servi par la passerelle sous le nom
+ * @param {Date | null} p.validite échéance lue par validiteDuRecord
+ * @param {Date} p.maintenant
+ * @param {number} p.margeMs validité restante minimale exigée
+ * @returns {{ ok: boolean, code: string, resume: string, details: string[] }}
+ */
+export function verdictDeSurveillance({ cid, nom, entree, racine, validite, maintenant, margeMs }) {
+  const base = verdictDeRelecture({ cid, nom, avant: null, apres: entree, racine });
+  if (!base.ok) return base;
+
+  if (!(validite instanceof Date) || Number.isNaN(validite.getTime())) {
+    return {
+      ok: false,
+      code: 'routage',
+      resume: 'Le routage IPFS ne distribue pas d’enregistrement lisible pour ce nom.',
+      details: [`nom : ${nom}`, 'Sans enregistrement sur le réseau, le nom cesse de se résoudre dès que les caches expirent.'],
+    };
+  }
+
+  const resteMs = validite.getTime() - maintenant.getTime();
+  const heures = (resteMs / 3_600_000).toFixed(1);
+  if (resteMs < margeMs) {
+    return {
+      ok: false,
+      code: 'expiration',
+      resume:
+        resteMs > 0
+          ? `L’enregistrement IPNS expire dans ${heures} h (${validite.toISOString()}) et rien ne le republie.`
+          : `L’enregistrement IPNS a expiré le ${validite.toISOString()}.`,
+      details: [
+        `seuil d’alerte : ${margeMs / 3_600_000} h de validité restante`,
+        'Filebase n’a pas renouvelé l’enregistrement, et un PUT au même CID n’y change rien.',
+        'Un déploiement (nouveau CID) republie le nom.',
+      ],
+    };
+  }
+
+  return {
+    ok: true,
+    code: 'ok',
+    resume: `Nom résolu sur le dernier CID épinglé, valide jusqu’au ${validite.toISOString()} (encore ${heures} h).`,
+    details: [`${nom} → /ipfs/${cid}`],
   };
 }

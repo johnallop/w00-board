@@ -172,8 +172,6 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: write # push de CIDS.log sur la branche ipfs-history
-    env:
-      W3NAME_KEY: ${{ secrets.W3NAME_KEY }}
 
     steps:
       - uses: actions/checkout@v4
@@ -303,21 +301,21 @@ jobs:
       # donc justifié — mais il rendait l'échec invisible ailleurs que dans les
       # logs. Le script relit désormais le nom après publication et exporte son
       # verdict ; « Résumé du miroir » l'affiche, succès comme échec.
+      #
+      # Le nom est géré par Filebase (API « IPNS names »), avec les mêmes clés
+      # que l'épinglage : la garde `configured` couvre donc aussi cette étape.
+      # w3name, utilisé avant, publiait des enregistrements que le réseau ne
+      # voyait pas (passerelle : « could not resolve name », routage IPFS :
+      # « not found », constaté le 2026-11-15).
       - name: Publier IPNS (nom stable)
         if: steps.guard.outputs.configured == 'true'
         id: ipns
         continue-on-error: true
         env:
           CID: ${{ steps.pack.outputs.cid }}
-        run: |
-          if [ -z "$W3NAME_KEY" ]; then
-            echo "verified=skipped" >> $GITHUB_OUTPUT
-            echo "resume=secret W3NAME_KEY absent" >> $GITHUB_OUTPUT
-            echo "⏭ IPNS non configuré — ajoutez le secret W3NAME_KEY"
-            echo "  (généré une fois par scripts/generate-w3name-key.mjs)"
-            exit 0
-          fi
-          node scripts/update-ipns.mjs "$CID"
+          FILEBASE_KEY: ${{ secrets.FILEBASE_KEY }}
+          FILEBASE_SECRET: ${{ secrets.FILEBASE_SECRET }}
+        run: node scripts/update-ipns.mjs "$CID"
 
       # Branche orpheline : aucun workflow ne s'y déclenche → zéro boucle CI.
       # Jamais de commit d'artefact sur main.
@@ -374,7 +372,7 @@ jobs:
             echo "### Miroir IPFS"
             echo "- CID : \`${CID}\`"
             echo "- Direct : https://ipfs.filebase.io/ipfs/${CID}/"
-            echo "- IPNS : https://dweb.link/ipns/k51qzi5uqu5dleh5vrnk6lkatc4kq0oq4bn3s9esxcnu9adg7qp0o39uoiu3em"
+            echo "- IPNS : https://ipfs.filebase.io/ipns/k51qzi5uqu5dj2p76paxdtfrdr86kc6txooxipz0l3w4osuyn1rqlu919xrlyi/"
             echo "- Vérification IPNS : $IPNS_ETAT"
             echo "- CID vérifié identique à celui des octets testés dans \`build-and-test\`."
             echo "- Épinglage Filebase : $PIN_PREUVE"

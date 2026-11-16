@@ -19,8 +19,8 @@ import { parse } from 'yaml';
  * Mastodon a commencé à empêcher le rafraîchissement du nom.
  *
  * Les deux tâches n'ont pas la même échéance. Une diffusion ratée se rattrape la
- * semaine suivante ; l'enregistrement w3name, lui, expire au bout d'environ un
- * an, et ce workflow hebdomadaire est tout ce qui le maintient en vie. La tâche
+ * semaine suivante ; l'enregistrement IPNS, lui, expire au bout de 48 h, et ce
+ * workflow quotidien est tout ce qui annonce son expiration à temps. La tâche
  * périssable ne doit pas dépendre de la tâche rattrapable.
  *
  * Ce contrôle ne relit pas la correction d'aujourd'hui : il empêche qu'une
@@ -65,7 +65,7 @@ function commandes(run: string): string {
     .join('\n');
 }
 
-describe('heartbeat.yml — le rafraîchissement IPNS ne dépend pas de la diffusion', () => {
+describe('heartbeat.yml — la surveillance IPNS ne dépend pas de la diffusion', () => {
   const etapes = etapesDuJob('heartbeat.yml', 'heartbeat');
 
   const iDiffusion = etapes.findIndex(
@@ -79,7 +79,7 @@ describe('heartbeat.yml — le rafraîchissement IPNS ne dépend pas de la diffu
     expect(iIpns, 'aucune étape ne porte id: ipns').toBeGreaterThanOrEqual(0);
   });
 
-  it('rafraîchit le nom même quand la diffusion a échoué', () => {
+  it('surveille le nom même quand la diffusion a échoué', () => {
     // Placer l'IPNS avant la diffusion réglerait aussi le problème : le contrôle
     // porte sur l'absence de dépendance, pas sur une écriture particulière.
     if (iIpns < iDiffusion) return;
@@ -89,7 +89,7 @@ describe('heartbeat.yml — le rafraîchissement IPNS ne dépend pas de la diffu
       typeof condition === 'string' ? condition : '',
       "L'étape IPNS suit la diffusion sans `if:` : elle hérite du `if: success()` " +
         "implicite et ne s'exécutera plus dès qu'une diffusion échoue. " +
-        "L'enregistrement w3name expire en ~1 an et ce job est ce qui le maintient. " +
+        "L'enregistrement IPNS expire en 48 h et ce job est ce qui l'annonce à temps. " +
         'Énoncer sa vraie dépendance, par exemple ' +
         "`if: ${{ !cancelled() && steps.install.outcome == 'success' }}`."
     ).toMatch(SURVIT_A_UN_ECHEC);
@@ -110,7 +110,7 @@ describe('heartbeat.yml — le rafraîchissement IPNS ne dépend pas de la diffu
 
   it('dépend en revanche de l’installation des dépendances', () => {
     // L'autre extrême — `if: always()` — ferait tourner l'étape après un `npm ci`
-    // cassé : elle échouerait sur un import w3name introuvable, et le lecteur des
+    // cassé : elle échouerait sur une dépendance introuvable, et le lecteur des
     // logs chercherait la cause au mauvais endroit.
     const condition = typeof etapes[iIpns]?.if === 'string' ? (etapes[iIpns].if as string) : '';
     const install = etapes.find((e) => typeof e.run === 'string' && /npm ci\b/.test(e.run));
@@ -254,7 +254,7 @@ describe('deploy.yml — la branche et son journal naissent du même push', () =
       'deploy.yml appelle update-ipns.mjs avec --depuis-log. Ce mode suppose la ' +
         'garde ls-remote de heartbeat.yml, absente ici : un second appelant rend ' +
         'caduque la déduction de scripts/lib/journal-verdict.mjs. deploy.yml doit ' +
-        'passer le CID que `w3 up` vient d’épingler.'
+        'passer le CID que Filebase vient d’épingler.'
     ).not.toContain('--depuis-log');
   });
 });

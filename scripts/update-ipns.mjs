@@ -1,46 +1,53 @@
 #!/usr/bin/env node
 /**
- * Publie (ou republie) l'enregistrement IPNS w3name → /ipfs/<CID>, PUIS relit le
- * nom pour vérifier qu'il désigne bien ce qui vient d'être signé.
+ * Publie le nom IPNS du site sur Filebase → /ipfs/<CID>, PUIS relit le nom —
+ * par l'API et par la passerelle — pour vérifier qu'il désigne bien ce qui
+ * vient d'être publié. Avec `--depuis-log`, ne publie rien : surveille.
  *
  * Usage : node scripts/update-ipns.mjs <CID>
  *         node scripts/update-ipns.mjs --depuis-log <chemin/CIDS.log>
- * Env   : W3NAME_KEY = clé privée Ed25519 en base64 (secret GitHub)
+ * Env   : FILEBASE_KEY, FILEBASE_SECRET (les secrets de l'épinglage)
+ *         FILEBASE_IPNS_LABEL (facultatif, « w00-board » par défaut)
+ *
+ * Le nom a été créé une fois par scripts/creer-nom-ipns.mjs ; la clé privée
+ * IPNS reste chez Filebase, qui signe chaque enregistrement.
  *
  * Appelé par :
- *  - le job `ipfs` de deploy.yml, avec le CID explicite que `w3 up` vient
+ *  - le job `ipfs` de deploy.yml, avec le CID explicite que Filebase vient
  *    d'épingler — déjà vérifié par `check:cid --expect` contre les octets
  *    testés dans build-and-test.
- *  - le cron heartbeat.yml, avec `--depuis-log` (les enregistrements IPNS
- *    expirent : validité 1 an côté w3name, mais une republication régulière
- *    garde le nom chaud).
+ *  - le cron quotidien de heartbeat.yml, avec `--depuis-log` : SURVEILLANCE
+ *    SEULE. Un enregistrement Filebase n'est valable que 48 h
+ *    (https://filebase.com/docs/ipfs/ipns-names), et republier le même CID ne
+ *    le prolonge pas : Filebase répond 200 sans signer d'enregistrement neuf
+ *    (mesuré le 2026-11-15, séquence 1 → 1). Filebase re-signe en revanche
+ *    l'enregistrement de lui-même (mesuré le 2026-11-16, non documenté). Le
+ *    heartbeat vérifie donc que le nom désigne le dernier CID épinglé et lui
+ *    reste valide au moins MARGE_VALIDITE ; sinon il échoue, avant l'expiration.
  *
- * POURQUOI DEUX MODES. Le heartbeat n'a rien à épingler : il rafraîchit un
- * enregistrement qui doit désigner du contenu DÉJÀ épinglé. Il calculait
- * pourtant son propre CID (`npx ipfs-car pack`) sans le confronter à rien. Le
- * jour où ce pack divergerait de celui de deploy.yml — une option, une version
- * d'ipfs-car — le nom pointerait vers un CID que personne n'a épinglé : il
- * résoudrait, la relecture ci-dessous serait verte (elle vérifie que le nom
- * désigne ce qu'on a signé, pas que ce contenu existe), et les passerelles ne
- * trouveraient rien. `--depuis-log` supprime la seconde source de vérité : le
- * heartbeat ne peut plus republier que ce que CIDS.log atteste.
+ * POURQUOI LE JOURNAL. Le heartbeat n'a rien à épingler. Il calculait jadis
+ * son propre CID (`npx ipfs-car pack`) sans le confronter à rien ; le jour où
+ * ce pack aurait divergé de celui de deploy.yml, il aurait validé un CID que
+ * personne n'a épinglé. `--depuis-log` supprime cette seconde source de
+ * vérité : l'attendu est ce que CIDS.log atteste, rien d'autre.
  *
- * Sécurité : le nom public reconstruit depuis la clé DOIT correspondre à la
- * constante IPNS_NAME de src/data/ipfs.ts — sinon on refuserait de publier
- * (secret erroné = on signerait pour un autre nom que celui affiché au site).
+ * Sécurité : le nom public (network_key) du label Filebase DOIT correspondre à
+ * la constante IPNS_NAME de src/data/ipfs.ts — sinon on refuse de publier
+ * (label ou compte erroné = on mettrait à jour un autre nom que celui affiché
+ * au site).
  *
  * Pourquoi la relecture : l'étape qui appelle ce script dans deploy.yml porte
  * `continue-on-error: true`. C'est justifié — un miroir muet ne doit pas casser
  * un déploiement réussi — mais cela veut dire que son échec ne se voit que dans
  * les logs. Un échec silencieux et un échec signalé ne sont pas la même chose :
  * le verdict de relecture part donc dans $GITHUB_OUTPUT, et le résumé du job
- * l'affiche dans les deux cas. Voir scripts/lib/ipns-verdict.mjs pour les deux
- * contrôles (valeur ET séquence) et la raison du second.
+ * l'affiche dans les deux cas. Voir scripts/lib/ipns-verdict.mjs pour les trois
+ * contrôles (API, séquence, passerelle) et la raison de chacun.
  */
-import * as Name from 'w3name';
 import fs from 'node:fs';
 import path from 'node:path';
-import { verdictDeRelecture } from './lib/ipns-verdict.mjs';
+import { API_NOMS, PASSERELLE, enteteFilebase } from './lib/filebase-ipns.mjs';
+import { racineServie, validiteDuRecord, verdictDeRelecture, verdictDeSurveillance } from './lib/ipns-verdict.mjs';
 import { verdictSurLeJournal } from './lib/journal-verdict.mjs';
 
 /**
@@ -113,10 +120,12 @@ if (!cid || !/^bafy[a-z2-7]{50,}$/.test(cid)) {
   );
 }
 
-const keyB64 = process.env.W3NAME_KEY;
-if (!keyB64) {
-  abandonner('Variable W3NAME_KEY absente (secret GitHub non configuré).');
+const { FILEBASE_KEY, FILEBASE_SECRET } = process.env;
+if (!FILEBASE_KEY || !FILEBASE_SECRET) {
+  abandonner('Variables FILEBASE_KEY / FILEBASE_SECRET absentes (secrets GitHub non configurés).');
 }
+const LABEL = process.env.FILEBASE_IPNS_LABEL || 'w00-board';
+const ENTETES = enteteFilebase(FILEBASE_KEY, FILEBASE_SECRET);
 
 // Nom public attendu — lu depuis la source de vérité du site (src/data/ipfs.ts)
 const ipfsTs = fs.readFileSync(path.join(process.cwd(), 'src', 'data', 'ipfs.ts'), 'utf8');
@@ -125,77 +134,180 @@ if (!expectedName) {
   abandonner('Impossible de lire IPNS_NAME dans src/data/ipfs.ts');
 }
 
-const name = await Name.from(Buffer.from(keyB64, 'base64'));
-if (name.toString() !== expectedName) {
+/**
+ * Entrée du label dans l'API Filebase, ou null s'il n'y figure pas.
+ *
+ * Toute réponse autre que 200 LÈVE : une panne de l'API ne doit pas se lire
+ * « nom absent ». Format mesuré le 2026-11-15 (GET /v1/names) : tableau de
+ * { enabled, label, network_key, cid, sequence, published_at, created_at,
+ * updated_at }.
+ */
+async function lireEntree() {
+  const reponse = await fetch(API_NOMS, { headers: ENTETES, signal: AbortSignal.timeout(30_000) });
+  if (!reponse.ok) throw new Error(`GET ${API_NOMS} → HTTP ${reponse.status}`);
+  const liste = await reponse.json();
+  if (!Array.isArray(liste)) throw new Error('réponse inattendue : un tableau de noms était attendu');
+  return liste.find((n) => n?.label === LABEL) ?? null;
+}
+
+/**
+ * CID que la passerelle sert sous le nom, ou null si elle ne le résout pas.
+ * Le paramètre de requête évite une réponse HTTP mise en cache
+ * (Cache-Control: max-age=300 mesuré) ; il n'agit pas sur le cache IPNS de la
+ * passerelle, d'où la fenêtre de relecture ci-dessous.
+ */
+async function lireRacine() {
+  try {
+    const url = `${PASSERELLE}/ipns/${expectedName}/build.json?relecture=${Date.now()}`;
+    const reponse = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+    await reponse.arrayBuffer();
+    return reponse.ok ? racineServie(reponse.headers.get('x-ipfs-roots')) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Échéance de l'enregistrement tel que le routage IPFS le distribue, ou null.
+ *
+ * delegated-ipfs.dev (routage délégué public, spec IPFS « Delegated Routing
+ * V1 ») ne reçoit que le nom public. Un nom inconnu y répond HTTP 200 avec le
+ * texte « delegate error: routing: not found » (mesuré le 2026-11-16) : c'est
+ * validiteDuRecord qui le rejette, pas le code HTTP.
+ */
+async function lireValidite() {
+  try {
+    const reponse = await fetch(`https://delegated-ipfs.dev/routing/v1/ipns/${expectedName}`, {
+      headers: { Accept: 'application/vnd.ipfs.ipns-record' },
+      signal: AbortSignal.timeout(60_000),
+    });
+    const octets = new Uint8Array(await reponse.arrayBuffer());
+    return reponse.ok ? validiteDuRecord(octets) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Seuil d'alerte du heartbeat. Le cron est quotidien : 24 h de marge garantit
+ * au moins une alerte avant l'expiration, avec le temps de déployer.
+ */
+const MARGE_VALIDITE = 24 * 3_600_000;
+
+/**
+ * Mode heartbeat : lit, ne publie pas. Deux relectures supplémentaires
+ * absorbent une passerelle ou un routage momentanément injoignable ; une
+ * échéance proche, elle, ne s'arrangera pas en attendant, mais le coût d'une
+ * minute et demie ne justifie pas un cas à part.
+ */
+async function surveiller() {
+  const ATTENTES = [30, 60].map((s) => s * 1000);
+  let verdict;
+  for (let essai = 0; ; essai++) {
+    let entree = null;
+    try {
+      entree = await lireEntree();
+    } catch (erreur) {
+      console.log(`  … lecture ${essai + 1} de l'API en erreur (${erreur?.message ?? erreur})`);
+    }
+    const [racine, validite] = await Promise.all([lireRacine(), lireValidite()]);
+    verdict = verdictDeSurveillance({
+      cid,
+      nom: expectedName,
+      entree,
+      racine,
+      validite,
+      maintenant: new Date(),
+      margeMs: MARGE_VALIDITE,
+    });
+    if (verdict.ok || essai >= ATTENTES.length) break;
+    console.log(`  … non conforme (${verdict.code}), nouvelle lecture dans ${ATTENTES[essai] / 1000} s`);
+    await new Promise((r) => setTimeout(r, ATTENTES[essai]));
+  }
+
+  console.log(`  ${PASSERELLE}/ipns/${expectedName}/`);
+  if (verdict.ok) {
+    console.log(`✓ ${verdict.resume}`);
+    rapporter(true, verdict.resume);
+    process.exit(0);
+  }
+  console.error(`\n✗ ${verdict.resume}`);
+  for (const d of verdict.details) console.error(`  ${d}`);
+  rapporter(false, verdict.resume);
+  process.exit(1);
+}
+
+let avant;
+try {
+  avant = await lireEntree();
+} catch (erreur) {
+  abandonner(`Lecture du nom sur Filebase impossible : ${erreur?.message ?? erreur}`);
+}
+if (!avant) {
   abandonner(
-    'La clé W3NAME_KEY ne correspond pas au nom public du site.',
-    `    clé   → ${name.toString()}`,
-    `    site  → ${expectedName}`,
+    `Le label « ${LABEL} » n'existe pas sur le compte Filebase.`,
+    '  Le créer une seule fois : node scripts/creer-nom-ipns.mjs <CID>',
+    '  puis reporter son network_key dans src/data/ipfs.ts (IPNS_NAME).'
+  );
+}
+if (avant.network_key !== expectedName) {
+  abandonner(
+    'Le label Filebase ne correspond pas au nom public du site.',
+    `    Filebase → ${avant.network_key}`,
+    `    site     → ${expectedName}`,
     '  Publication refusée (le footer pointerait vers un autre nom).'
   );
 }
 
-const value = `/ipfs/${cid}`;
+if (iJournal !== -1) await surveiller();
 
-/**
- * Résout le nom, ou renvoie null s'il n'existe pas encore.
- *
- * `Name.resolve` lève dans les deux cas — enregistrement absent ET panne
- * réseau — et l'ancienne version les confondait dans un `catch` nu. La
- * différence est lourde : « absent » justifie un premier enregistrement (v0,
- * séquence 0) ; une panne réseau, elle, ferait retomber sur v0 alors qu'un
- * enregistrement existe, avec une séquence en régression. On ne distingue donc
- * plus par le succès mais par le message, et tout le reste remonte.
- */
-async function resoudreOuNull(n) {
-  try {
-    return await Name.resolve(n);
-  } catch (erreur) {
-    if (/record not found/i.test(erreur?.message ?? '')) return null;
-    throw erreur;
-  }
+let miseAJour;
+try {
+  miseAJour = await fetch(`${API_NOMS}/${encodeURIComponent(LABEL)}`, {
+    method: 'PUT',
+    headers: { ...ENTETES, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cid }),
+    signal: AbortSignal.timeout(30_000),
+  });
+} catch (erreur) {
+  abandonner(`Mise à jour du nom impossible : ${erreur?.message ?? erreur}`);
 }
-
-// Premier enregistrement (v0) ou incrément du numéro de séquence existant
-let revision;
-const actuel = await resoudreOuNull(name);
-if (actuel) {
-  revision = await Name.increment(actuel, value);
-  console.log(`↻ Enregistrement existant (seq ${actuel.sequence}) → seq ${revision.sequence}`);
-} else {
-  revision = await Name.v0(name, value);
-  console.log('✦ Premier enregistrement IPNS (v0)');
+if (!miseAJour.ok) {
+  abandonner(
+    `Filebase a refusé la mise à jour du nom (HTTP ${miseAJour.status}).`,
+    `  ${(await miseAJour.text()).slice(0, 300)}`
+  );
 }
+await miseAJour.arrayBuffer().catch(() => {});
 
-await Name.publish(revision, name.key);
-
-console.log('✓ Publication émise');
-console.log(`  ipns://${name.toString()}`);
-console.log(`  → ${value}`);
+console.log(`✓ Mise à jour acceptée par Filebase (seq avant : ${avant.sequence})`);
+console.log(`  ipns://${expectedName}`);
+console.log(`  → /ipfs/${cid}`);
 
 /*
- * Relecture. Le service peut mettre un instant à servir ce qu'il vient
- * d'accepter ; on lui laisse une fenêtre BORNÉE (~14 s au total) plutôt que
- * d'attendre indéfiniment dans un job CI. Une tentative qui abandonne le dit —
- * elle ne retombe jamais dans le silence qu'on cherche justement à supprimer.
+ * Relecture. La passerelle garde un nom résolu en cache jusqu'à son TTL
+ * (5 min selon la doc Filebase) : la fenêtre est donc BORNÉE à ~6 min, plutôt
+ * qu'infinie dans un job CI. Une tentative qui abandonne le dit — elle ne
+ * retombe jamais dans le silence qu'on cherche justement à supprimer.
  */
-const ATTENTES = [2000, 4000, 8000];
+const ATTENTES = [15, 30, 60, 60, 60, 60, 60].map((s) => s * 1000);
 let verdict;
 for (let essai = 0; ; essai++) {
-  let relu = null;
+  let apres = null;
   try {
-    relu = await resoudreOuNull(name);
+    apres = await lireEntree();
   } catch (erreur) {
-    // Panne réseau pendant la relecture : on retente, puis on l'avoue.
+    // Panne de l'API pendant la relecture : on retente, puis on l'avoue.
     console.log(`  … relecture ${essai + 1} en erreur (${erreur?.message ?? erreur})`);
   }
-  verdict = verdictDeRelecture(revision, relu);
+  const racine = await lireRacine();
+  verdict = verdictDeRelecture({ cid, nom: expectedName, avant, apres, racine });
   if (verdict.ok || essai >= ATTENTES.length) break;
   console.log(`  … relu non conforme (${verdict.code}), nouvelle tentative dans ${ATTENTES[essai] / 1000} s`);
   await new Promise((r) => setTimeout(r, ATTENTES[essai]));
 }
 
-console.log(`  https://dweb.link/ipns/${name.toString()}`);
+console.log(`  ${PASSERELLE}/ipns/${expectedName}/`);
 
 if (verdict.ok) {
   console.log(`✓ ${verdict.resume}`);
