@@ -95,7 +95,7 @@ export function verdictSurLeJournal(contenu, fichier = 'CIDS.log') {
       action: 'publier',
       cid: journal.cid,
       resume: journal.resume,
-      details: ['(source : CIDS.log, écrit après un `w3 up` réussi)'],
+      details: ['(source : CIDS.log, écrit après un épinglage Filebase vérifié)'],
     };
   }
 

@@ -32,7 +32,7 @@ describe('verdictSurLeJournal — journal exploitable', () => {
 
   it('dit d’où vient le CID, pour qu’un log suffise à le retracer', () => {
     const v = verdictSurLeJournal(ENTREE, 'history/CIDS.log');
-    expect(v.details.join(' ')).toContain('w3 up');
+    expect(v.details.join(' ')).toContain('épinglage Filebase');
   });
 });
 

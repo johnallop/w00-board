@@ -17,10 +17,6 @@ dist/
 .env.local
 .env.*.local
 
-# Clé privée w3name (IPNS) — générée par scripts/generate-w3name-key.mjs.
-# À copier dans le secret GitHub W3NAME_KEY puis SUPPRIMER. Ne jamais committer.
-w3name-key.SECRET.txt
-
 # Logs
 *.log
 npm-debug.log*

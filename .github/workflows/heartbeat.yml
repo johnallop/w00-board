@@ -1,8 +1,14 @@
-name: Heartbeat — Repost hebdomadaire & Rafraîchissement IPNS
+name: Heartbeat — Repost hebdomadaire & Surveillance IPNS
 
 on:
   schedule:
-    - cron: '17 9 * * 1' # Tous les lundis à 09:17 UTC
+    - cron: '17 9 * * 1' # Lundi 09:17 UTC : repost hebdomadaire + IPNS
+    # Tous les jours : un enregistrement IPNS Filebase n'est valable que 48 h
+    # (filebase.com/docs/ipfs/ipns-names). Filebase le renouvelle de lui-même
+    # (mesuré, non documenté) : une lecture quotidienne avec 24 h de marge
+    # alerte avant l'échéance si ce renouvellement cesse. Le repost, lui,
+    # reste hebdomadaire : son étape ne s'exécute que le lundi.
+    - cron: '43 3 * * *'
   workflow_dispatch:
 
 # Lecture seule : le job lit la branche ipfs-history, il n'écrit rien.
@@ -37,7 +43,10 @@ jobs:
 
       # Secrets sur l'étape qui les lit, pas sur le job : `npm ci` (et les
       # scripts d'installation des dépendances) n'a pas à les voir.
+      # Le cron quotidien n'existe que pour l'IPNS : sans cette condition, les
+      # réseaux sociaux recevraient un repost chaque jour.
       - name: Lancer le repost hebdomadaire
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 9 * * 1'
         env:
           SITE_URL: ${{ secrets.SITE_URL || 'https://board.wooddyviat.com' }}
           MASTODON_TOKEN: ${{ secrets.MASTODON_TOKEN }}
@@ -70,9 +79,17 @@ jobs:
       # désigne ce qu'on a signé, pas que ce contenu existe — et les passerelles
       # ne trouveraient rien.
       #
-      # Rafraîchir un nom, c'est le maintenir sur du contenu DÉJÀ épinglé.
-      # CIDS.log, écrit par deploy.yml après un `w3 up` réussi, est la seule
+      # Surveiller un nom, c'est vérifier qu'il désigne du contenu DÉJÀ épinglé.
+      # CIDS.log, écrit par deploy.yml après un épinglage vérifié, est la seule
       # attestation d'épinglage, donc la seule source autorisée ici.
+      #
+      # L'étape ne publie plus : Filebase répond 200 à un PUT au même CID sans
+      # signer d'enregistrement neuf (mesuré le 2026-11-15, séquence 1 → 1).
+      # Republier quotidiennement ne prolongeait donc rien ; c'est Filebase qui
+      # re-signe l'enregistrement (mesuré le 2026-11-16, séquence inchangée,
+      # échéance repoussée). Elle lit l'API, la passerelle et le routage IPFS,
+      # et échoue s'il reste moins de 24 h de validité : le signal que ce
+      # renouvellement a cessé, et qu'il faut déployer avant que le nom tombe.
       #
       # POURQUOI CETTE ÉTAPE PORTE UN `if:`.
       #
@@ -83,9 +100,9 @@ jobs:
       # Tant que broadcast.mjs sortait 0 quoi qu'il arrive, la coïncidence était
       # sans effet. Depuis qu'il signale ses échecs par son code de retour, une
       # panne Mastodon — ou un jeton Bluesky expiré, ou Nostr injoignable —
-      # empêche le rafraîchissement du nom IPNS. Or c'est la seule tâche de ce
-      # job à porter une échéance réelle : l'enregistrement w3name expire au bout
-      # d'environ un an, et ce workflow est ce qui le maintient chaud. Faire
+      # empêche la surveillance du nom IPNS. Or c'est la seule tâche de ce
+      # job à porter une échéance réelle : l'enregistrement IPNS expire au bout
+      # de 48 h, et ce workflow est ce qui l'annonce à temps. Faire
       # dépendre cette échéance de la disponibilité d'un réseau social est un
       # couplage qu'aucune des deux tâches ne réclame.
       #
@@ -93,18 +110,19 @@ jobs:
       # job vert sur une diffusion échouée : exactement le silence que le lot
       # précédent a supprimé. On énonce plutôt la vraie dépendance de cette
       # étape-ci — les dépendances npm sont installées — et rien d'autre. Un
-      # `npm ci` cassé la saute (elle ne pourrait de toute façon pas importer
-      # w3name) ; une diffusion cassée ne la concerne pas.
-      - name: Rafraîchir l'IPNS (w3name)
+      # `npm ci` cassé la saute (le script ne pourrait de toute façon pas
+      # s'exécuter) ; une diffusion cassée ne la concerne pas.
+      - name: Surveiller l'IPNS (Filebase)
         id: ipns
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
-          W3NAME_KEY: ${{ secrets.W3NAME_KEY }}
+          FILEBASE_KEY: ${{ secrets.FILEBASE_KEY }}
+          FILEBASE_SECRET: ${{ secrets.FILEBASE_SECRET }}
         run: |
-          if [ -z "$W3NAME_KEY" ]; then
+          if [ -z "$FILEBASE_KEY" ] || [ -z "$FILEBASE_SECRET" ]; then
             echo "verified=skipped" >> $GITHUB_OUTPUT
-            echo "resume=secret W3NAME_KEY absent" >> $GITHUB_OUTPUT
-            echo "⏭ IPNS non configuré — ajoutez le secret W3NAME_KEY pour rafraîchir l'enregistrement."
+            echo "resume=secrets FILEBASE_KEY / FILEBASE_SECRET absents" >> $GITHUB_OUTPUT
+            echo "⏭ IPNS non configuré — ajoutez les secrets FILEBASE_KEY et FILEBASE_SECRET pour surveiller l'enregistrement."
             exit 0
           fi
 
@@ -121,7 +139,7 @@ jobs:
             0) ;;
             2) echo "verified=skipped" >> $GITHUB_OUTPUT
                echo "resume=branche ipfs-history absente, aucun CID épinglé" >> $GITHUB_OUTPUT
-               echo "⏭ Branche ipfs-history absente — aucun CID n'a encore été épinglé, rien à rafraîchir."
+               echo "⏭ Branche ipfs-history absente — aucun CID n'a encore été épinglé, rien à surveiller."
                exit 0 ;;
             *) echo "verified=false" >> $GITHUB_OUTPUT
                echo "resume=git ls-remote a échoué (code $etat), état des épinglages inconnu" >> $GITHUB_OUTPUT
@@ -165,11 +183,11 @@ jobs:
           IPNS_RESUME: ${{ steps.ipns.outputs.resume }}
         run: |
           {
-            echo "### Rafraîchissement IPNS"
+            echo "### Surveillance IPNS"
             case "$IPNS_VERIFIED" in
-              true)    echo "✅ Nom republié sur le dernier CID épinglé, et relu après publication." ;;
-              skipped) echo "⏭ Rien à rafraîchir." ;;
-              false)   echo "⚠️ Le nom IPNS n'a **pas** été rafraîchi." ;;
+              true)    echo "✅ Nom résolu sur le dernier CID épinglé, valide encore au moins 24 h." ;;
+              skipped) echo "⏭ Rien à surveiller." ;;
+              false)   echo "⚠️ Nom IPNS **non conforme ou proche de l'expiration** — déployer republie l'enregistrement." ;;
               *)       echo "⚠️ Verdict IPNS absent — l'étape n'a pas rendu de compte (valeur : \`${IPNS_VERIFIED:-<vide>}\`)." ;;
             esac
             # Pas de `[ … ] && echo` ici : sous `bash -e`, un résumé vide ferait

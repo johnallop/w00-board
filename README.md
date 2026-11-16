@@ -207,8 +207,8 @@ Puis **Settings → Actions → General → « Allow GitHub Actions to create an
 
 À chaque push sur `main`, le job `ipfs` de `deploy.yml` épingle le build sur IPFS et met à jour un pointeur IPNS **stable** :
 
-- **Adresse stable** : `ipns://k51qzi5uqu5dleh5vrnk6lkatc4kq0oq4bn3s9esxcnu9adg7qp0o39uoiu3em`
-- **Passerelle** : <https://dweb.link/ipns/k51qzi5uqu5dleh5vrnk6lkatc4kq0oq4bn3s9esxcnu9adg7qp0o39uoiu3em> (secours : `w3s.link`)
+- **Adresse stable** : `ipns://k51qzi5uqu5dj2p76paxdtfrdr86kc6txooxipz0l3w4osuyn1rqlu919xrlyi`
+- **Passerelle** : <https://ipfs.filebase.io/ipns/k51qzi5uqu5dj2p76paxdtfrdr86kc6txooxipz0l3w4osuyn1rqlu919xrlyi/> (secours, dans un navigateur : `dweb.link`, devenue une passerelle « service worker » qui ne répond plus aux clients HTTP simples)
 - **Historique public des CID** : branche [`ipfs-history`](https://github.com/johnallop/w00-board/tree/ipfs-history) (`CIDS.log`, hors `main`)
 
 Le CID est calculé **localement** (`ipfs-car pack dist --no-wrap`) avant tout upload : le contenu est vérifiable et portable indépendamment du service de pinning.
@@ -227,15 +227,15 @@ Le CID est calculé **localement** (`ipfs-car pack dist --no-wrap`) avant tout u
    gh secret set FILEBASE_BUCKET --repo johnallop/w00-board
    ```
 
-   Le job envoie le CAR sur `s3.filebase.com` avec la métadonnée `import=car`, relit le CID annoncé par Filebase (`x-amz-meta-cid`) et échoue s'il diffère du CID calculé localement.
+   Le job envoie le CAR sur `s3.filebase.com` avec la métadonnée `import=car`, puis exige une preuve : soit le CID annoncé par Filebase (`x-amz-meta-cid`) identique au CID calculé localement, soit, à défaut, le `build.json` du commit servi sous ce CID par `ipfs.filebase.io`. Sans preuve, le job échoue.
 
-2. **Clé IPNS (w3name)** :
+2. **Nom IPNS (Filebase)**, créé une seule fois avec un CID déjà épinglé (par exemple le dernier de `CIDS.log`) :
 
    ```bash
-   node scripts/generate-w3name-key.mjs
+   FILEBASE_KEY=… FILEBASE_SECRET=… node scripts/creer-nom-ipns.mjs <CID>
    ```
 
-   Copier le contenu de `w3name-key.SECRET.txt` dans le secret GitHub `W3NAME_KEY`, puis **supprimer le fichier**. Ne jamais le committer (il est gitignoré). Ne jamais régénérer la clé : le nom public `k51...` (codé dans `src/data/ipfs.ts`) changerait et casserait tous les liens publiés.
+   Reporter le `network_key` affiché (`k51…`) dans `src/data/ipfs.ts` (`IPNS_NAME`). La clé privée IPNS reste chez Filebase : aucun autre secret à créer. Ne jamais supprimer ni recréer ce nom : le nom public changerait et casserait tous les liens publiés. Les déploiements le mettent à jour (`PUT /v1/names/w00-board`), puis vérifient qu'il est relu par l'API **et** résolu par la passerelle. Un enregistrement n'est valable que 48 h. Filebase ignore une mise à jour au même CID (mesuré : séquence inchangée), mais re-signe l'enregistrement de lui-même (mesuré le 2026-11-16, non documenté). `heartbeat.yml` **surveille** donc ce renouvellement chaque jour et échoue s'il reste moins de 24 h de validité — le signal pour redéployer.
 
 Secrets absents → le job `ipfs` s'ignore proprement avec un log, le déploiement Cloudflare n'est jamais bloqué.
 
@@ -243,10 +243,11 @@ Secrets absents → le job `ipfs` s'ignore proprement avec un log, le déploieme
 
 - **Service** : [Filebase](https://filebase.com), via son API S3 (`s3.filebase.com`, AWS CLI préinstallée sur le runner, aucun paquet ajouté) et le packer `ipfs-car` open source. Storacha, utilisé jusqu'en novembre 2026, a fermé.
 - **Coût / quotas** (page tarifs consultée le 2026-11-14) : offre gratuite à 5 Go partagés, 10 Go de sortie IPFS et 500 fichiers épinglés ; offre Pro à 7,50 $/mois. Chaque déploiement d'un contenu nouveau épingle un CAR de plus : surveiller le compteur des 500 fichiers et supprimer les anciens CAR du bucket si besoin. Carte bancaire exigée ou non à l'inscription : `À vérifier`.
-- **Domaines contactés** : `s3.filebase.com` (envoi, depuis la CI) ; `ipfs.filebase.io` (passerelle publique de lecture).
+- **IPNS** : API « IPNS names » de Filebase (`api.filebase.io/v1/names`), 1 nom dans l'offre gratuite, enregistrement valable 48 h et TTL de 5 min ([doc](https://filebase.com/docs/ipfs/ipns-names)). w3name, utilisé avant, publiait des enregistrements que le réseau IPFS ne trouvait pas (constaté le 2026-11-15).
+- **Domaines contactés** : `s3.filebase.com` (envoi, depuis la CI) ; `api.filebase.io` (nom IPNS, depuis la CI) ; `ipfs.filebase.io` (passerelle publique de lecture et de vérification) ; `delegated-ipfs.dev` (routage IPFS public, depuis la CI : lecture de l'échéance de l'enregistrement, seul le nom public est envoyé).
 - **Données envoyées** : uniquement le contenu déjà public du site (`dist/`). Aucune donnée personnelle.
 - **Portabilité / stratégie de sortie** : le CID est calculé localement avant upload ; n'importe quel autre service de pinning (Pinata…) ou un nœud Kubo auto-hébergé peut resservir **le même CID à l'identique**. Changer de service = changer une seule commande d'upload dans le job.
-- **Repli si w3name (IPNS) échoue** : le pin reste effectif et la branche `ipfs-history` donne toujours le dernier CID connu — l'étape IPNS est en `continue-on-error`.
+- **Repli si l'IPNS échoue** : le pin reste effectif et la branche `ipfs-history` donne toujours le dernier CID connu — l'étape IPNS est en `continue-on-error`.
 
 ## Analytics — Cloudflare Web Analytics
 
