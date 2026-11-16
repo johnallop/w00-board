@@ -240,6 +240,24 @@ describe('deploy.yml — la branche et son journal naissent du même push', () =
     expect(iCommit >= 0 && iCommit < iPush, message).toBe(true);
   });
 
+  /*
+   * FETCH_HEAD est une référence PAR WORKTREE : elle vit dans le worktree où
+   * `git fetch` a tourné. Après `cd history`, elle n'existe plus. Le chemin
+   * « branche déjà existante » n'a tourné qu'au deuxième déploiement, et s'y
+   * est arrêté sur `fatal: invalid reference: FETCH_HEAD` (run 43793344926) :
+   * le CID épinglé n'est jamais entré dans CIDS.log.
+   */
+  it('ne lit plus FETCH_HEAD une fois entré dans le worktree history', () => {
+    const iCd = run.indexOf('cd history');
+    expect(iCd, 'l’étape n’entre plus dans le worktree history').toBeGreaterThanOrEqual(0);
+    expect(
+      run.slice(iCd),
+      'FETCH_HEAD est lu après `cd history` : cette référence appartient au ' +
+        'worktree principal, git répond « invalid reference » et le CID n’est pas tracé. ' +
+        'Créer la branche au `git worktree add` (option -B).'
+    ).not.toContain('FETCH_HEAD');
+  });
+
   it('ne lit jamais le journal : deploy.yml publie le CID qu’il vient d’épingler', () => {
     // `--depuis-log` n'a qu'un appelant, et c'est ce qui autorise
     // journal-verdict.mjs à raisonner sur le contexte d'appel. Un second appelant

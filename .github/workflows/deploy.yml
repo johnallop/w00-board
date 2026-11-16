@@ -326,10 +326,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # FETCH_HEAD n'existe que dans le worktree où le fetch a eu lieu : la
+          # branche se crée donc ICI, pas après le `cd history` (où un
+          # `git switch -C … FETCH_HEAD` échouait : « invalid reference »,
+          # run 43793344926, premier passage avec la branche déjà existante).
           if git fetch origin ipfs-history 2>/dev/null; then
-            git worktree add history FETCH_HEAD
+            git worktree add -B ipfs-history history FETCH_HEAD
             cd history
-            git switch -C ipfs-history FETCH_HEAD
           else
             git worktree add --detach history
             cd history
